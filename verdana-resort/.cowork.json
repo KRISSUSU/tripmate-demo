@@ -1,0 +1,33 @@
+{
+  "schema": "cowork-project/v1",
+  "id": "cw_proj_3a2613d4-d26",
+  "name": "verdana-resort",
+  "srcDir": "/home/node/.openclaw/workspace/verdana-resort",
+  "createdAt": 1782978729374,
+  "updatedAt": 1782978797716,
+  "createdBy": "seal-agent",
+  "stack": "pure-spa-vite",
+  "guardCompliant": true,
+  "pack": {
+    "keep": [
+      "dist"
+    ]
+  },
+  "devConfig": {
+    "preStart": [
+      "test -d node_modules/vite || NODE_ENV=development npm install --silent --include=dev --registry=http://registry.npmmirror.com"
+    ],
+    "run": "npm run dev -- --host 0.0.0.0 --port ${PORT}"
+  },
+  "cowork": {
+    "workId": 63047,
+    "appId": "be680610",
+    "alias": "verdana-resort",
+    "accessUrl": "https://cowork.xiaohongshu.com/s/verdana-resort",
+    "coworkAppUrl": "https://cowork.xiaohongshu.com/app/NWEzYzk4NmE",
+    "deploymentId": 9605,
+    "deploymentStatus": "RUNNING",
+    "publishedAt": 1782978797716,
+    "visibility": "SELF_ONLY"
+  }
+}

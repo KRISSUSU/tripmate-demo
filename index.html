@@ -1,0 +1,1420 @@
+
+<!DOCTYPE html><html lang="zh-CN" class="light"><head>
+<base href="/s/tripmate-demo/"/>
+<script>
+(function(){
+  if(window.__FAAS_PATCHED)return;
+  window.__FAAS_PATCHED=true;
+  var P="/s/tripmate-demo";
+  function rewrite(url){
+    if(typeof url!=='string'||url.length===0)return url;
+    if(url.charAt(0)!=='/')return url;                            // 相对 / absolute URL — 不动
+    if(url.length>1&&url.charAt(1)==='/')return url;               // 协议相对 //host/...
+    // 已带前缀：严格判等 P 或 P+"/" 起手，避免 sibling app_id（如 P="/s/abc"
+    // url="/s/abcdef/..."）被 startsWith 误判为已前缀
+    if(url===P||url.indexOf(P+'/')===0)return url;
+    return P+url;
+  }
+  // ── webpack 动态 chunk public path ──
+  // Next.js / Vue CLI / CRA / 任何 webpack 产物，runtime 加载懒加载 chunk 时
+  // 走 __webpack_require__.p（在 build 阶段烧成 publicPath 配置值，默认 "/_next/" 或 "/"）。
+  // 这里在所有 chunk 加载之前覆盖成带 prefix 的版本，让动态 import 走对的 URL。
+  // 多个全局名都覆盖一遍（webpack4 / webpack5 / 各框架 wrapper 用名不同）。
+  try {
+    window.__webpack_public_path__ = P + "/_next/";
+    // eslint-disable-next-line no-undef
+    if (typeof __webpack_public_path__ !== 'undefined') __webpack_public_path__ = P + "/_next/";
+  } catch(e){}
+  // patch fetch
+  var _fetch=window.fetch;
+  window.fetch=function(input,init){
+    if(typeof input==='string')input=rewrite(input);
+    else if(input instanceof Request)input=new Request(rewrite(input.url),input);
+    return _fetch.call(this,input,init);
+  };
+  // patch XHR
+  var _open=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url){
+    arguments[1]=rewrite(url);
+    return _open.apply(this,arguments);
+  };
+  // ── history API：客户端路由（Next.js Link / Vue Router / React Router）──
+  // 这些路由库内部把组件 props 里的裸 path（"/foo"）直接传给 history.pushState/
+  // replaceState，pushState 不带 prefix 会让 URL bar 跳到 /foo（丢前缀）→ 刷新 404。
+  // 这里 patch：传入绝对路径且未带前缀时自动补上。state 与 title 透传。
+  // popstate（浏览器后退/前进）由浏览器原生触发，URL 已带 prefix，路由库内部读
+  // location.pathname 时拿到带前缀的 path —— 这种边界场景由路由库自己处理；
+  // 大多数库（含 Next.js App Router）能容忍前缀作为额外 segment。
+  function patchHistory(name){
+    var orig = history[name];
+    history[name] = function(state, title, url){
+      if (typeof url === 'string') url = rewrite(url);
+      return orig.call(this, state, title, url);
+    };
+  }
+  patchHistory('pushState');
+  patchHistory('replaceState');
+  // ── window.location.assign / replace：SPA 路由库的 fallback 整页跳转走这里 ──
+  // Next.js App Router 在客户端 RSC fetch / hydration 失败时回退到
+  // location.assign(原始 react-prop href)，原始 href 是裸路径（如 "/env"），
+  // 不经过上面的 pushState patch → URL bar 跳到裸路径 → router 拒收（no
+  // route prefix matched）。这里包一下让 fallback 跳转也带上前缀。
+  // location.href setter 在现代浏览器 [LegacyUnforgeable] 不可 override；
+  // subapp 自己别写 `location.href = "/foo"`（prompt § 七.5 写法规则已约束）。
+  function patchLocation(name){
+    var orig = location[name];
+    if (typeof orig !== 'function') return;
+    location[name] = function(url){
+      if (typeof url === 'string') url = rewrite(url);
+      return orig.call(location, url);
+    };
+  }
+  patchLocation('assign');
+  patchLocation('replace');
+  // WebSocket：spec 要求 ws://... 或 wss://... 绝对 URL。subapp 写
+  // new WebSocket("/foo") 浏览器直接拒；这里把 "/foo" 升级成 wss://host/<prefix>/foo
+  // （host / 协议跟当前页走），subapp 完全不用读 baseURI 自己拼。
+  if (window.WebSocket) {
+    var origWS = window.WebSocket;
+    function PatchedWS(url, protocols){
+      if (typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/') {
+        if (url.indexOf(P + '/') !== 0 && url !== P) url = P + url;
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        url = proto + '//' + location.host + url;
+      }
+      return protocols === undefined ? new origWS(url) : new origWS(url, protocols);
+    }
+    PatchedWS.prototype = origWS.prototype;
+    PatchedWS.CONNECTING = origWS.CONNECTING; PatchedWS.OPEN = origWS.OPEN;
+    PatchedWS.CLOSING = origWS.CLOSING;       PatchedWS.CLOSED = origWS.CLOSED;
+    window.WebSocket = PatchedWS;
+  }
+  // EventSource：spec 接受 path，但 path 是绝对就丢前缀。包一层 rewrite。
+  if (window.EventSource) {
+    var origES = window.EventSource;
+    function PatchedES(url, init){
+      if (typeof url === 'string') url = rewrite(url);
+      return init === undefined ? new origES(url) : new origES(url, init);
+    }
+    PatchedES.prototype = origES.prototype;
+    PatchedES.CONNECTING = origES.CONNECTING; PatchedES.OPEN = origES.OPEN;
+    PatchedES.CLOSED = origES.CLOSED;
+    window.EventSource = PatchedES;
+  }
+  // ServiceWorker.register(scriptURL, {scope})：subapp 写 register("/sw.js")
+  // 会注册到 host root，scope 默认也走根，跨 prefix 失效。URL + scope 都包。
+  if (navigator.serviceWorker) {
+    var sw = navigator.serviceWorker;
+    if (typeof sw.register === 'function') {
+      var origReg = sw.register.bind(sw);
+      sw.register = function(scriptURL, options) {
+        if (typeof scriptURL === 'string') scriptURL = rewrite(scriptURL);
+        if (options && typeof options.scope === 'string') {
+          // ES5-safe shallow clone
+          var newOpts = {};
+          for (var k in options) {
+            if (Object.prototype.hasOwnProperty.call(options, k)) newOpts[k] = options[k];
+          }
+          newOpts.scope = rewrite(options.scope);
+          options = newOpts;
+        }
+        return origReg(scriptURL, options);
+      };
+    }
+    if (typeof sw.getRegistration === 'function') {
+      var origGet = sw.getRegistration.bind(sw);
+      sw.getRegistration = function(scope) {
+        if (typeof scope === 'string') scope = rewrite(scope);
+        return origGet(scope);
+      };
+    }
+  }
+  // patch DOM: rewrite absolute paths in href/action/src attributes
+  var SEL='a[href],form[action],link[href],script[src],img[src],video[src],audio[src],source[src],source[srcset],img[srcset],video[poster]';
+  function getUrlAttr(el){
+    if(el.hasAttribute('action'))return 'action';
+    if(el.hasAttribute('src'))return 'src';
+    if(el.hasAttribute('poster'))return 'poster';
+    return 'href';
+  }
+  function patchEl(el){
+    var attr=getUrlAttr(el);
+    var v=el.getAttribute(attr);
+    // 跟 rewrite() 用同一套判定，避免重复实现：协议相对、相对路径、已带前缀（严格 P 或 P+/）都不动
+    if(v){
+      var nv=rewrite(v);
+      if(nv!==v)el.setAttribute(attr,nv);
+    }
+    // srcset 需要单独处理（多 URL 格式）
+    var ss=el.getAttribute('srcset');
+    if(ss&&ss.indexOf('/')===0){
+      el.setAttribute('srcset',ss.replace(/(^|,\s*)(\/[^\/])/g,'$1'+P+'$2'));
+    }
+    // 内联 style 里的 url()：HTML body filter 兜静态部分；这里兜动态插入的
+    // （React render 出 <div style={{background:'url(/x)'}}>）
+    var style=el.getAttribute('style');
+    if(style&&style.indexOf('url(')!==-1&&style.indexOf('/')!==-1){
+      var newStyle=style.replace(/(url\(\s*['"]?)(\/[^\/])/g,'$1'+P+'$2');
+      // 双前缀防御：已带 P 的 url 被加成 P+P → 折回 P
+      newStyle=newStyle.split(P+P).join(P);
+      if(newStyle!==style)el.setAttribute('style',newStyle);
+    }
+  }
+  function patchDOM(){document.querySelectorAll(SEL).forEach(patchEl);}
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',patchDOM);
+  }else{
+    patchDOM();
+  }
+  new MutationObserver(function(mutations){
+    mutations.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        if(n.nodeType!==1)return;
+        if(n.matches&&n.matches(SEL))patchEl(n);
+        if(n.querySelectorAll)n.querySelectorAll(SEL).forEach(patchEl);
+      });
+    });
+  }).observe(document.documentElement,{childList:true,subtree:true});
+})();
+</script>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>旅行家 TripMate · AI 旅游规划助手</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+  <style>
+    * { font-family: 'Inter', -apple-system, sans-serif; transition: background-color 0.3s, color 0.3s, border-color 0.3s; }
+
+    /* ── Light Mode ── */
+    :root {
+      --bg: #FAF7F2; --bg2: #F0EBE0; --bg3: #E8EDC7;
+      --card: #ffffff; --border: #E5E5E5;
+      --text: #2D2D2D; --text2: #5A5A5A; --text3: #8A8A8A;
+      --primary: #B5C96B; --primary-dark: #9BAF5C;
+      --shimmer1: #f0ebe0; --shimmer2: #e8e3d8;
+    }
+    html.dark {
+      --bg: #1A1A2E; --bg2: #16213E; --bg3: #1a2a1a;
+      --card: #16213E; --border: #2A3A5E;
+      --text: #E0E0E0; --text2: #A0A0B0; --text3: #6A6A8A;
+      --primary: #B5C96B; --primary-dark: #9BAF5C;
+      --shimmer1: #1e2a3e; --shimmer2: #243040;
+    }
+
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+    .card { background: var(--card); border-color: var(--border); }
+    .bg-page { background: var(--bg); }
+    .bg-page2 { background: var(--bg2); }
+    .text-main { color: var(--text); }
+    .text-sub { color: var(--text2); }
+    .text-hint { color: var(--text3); }
+    .border-main { border-color: var(--border); }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 9999px; }
+
+    @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    @keyframes popIn { 0%{transform:scale(0.92);opacity:0} 100%{transform:scale(1);opacity:1} }
+
+    .fade-in   { animation: fadeIn 0.4s ease both; }
+    .fade-in-2 { animation: fadeIn 0.4s 0.1s ease both; }
+    .fade-in-3 { animation: fadeIn 0.4s 0.2s ease both; }
+    .shimmer   { background: linear-gradient(90deg,var(--shimmer1) 25%,var(--shimmer2) 50%,var(--shimmer1) 75%); background-size:400px 100%; animation:shimmer 1.4s infinite; }
+    .spin      { animation: spin 1s linear infinite; }
+    .pop-in    { animation: popIn 0.25s ease both; }
+
+    .tag-active  { background: var(--primary); color: #2D2D2D; }
+    .tag-default { background: var(--bg2); color: var(--text2); }
+    .btn-primary { background: var(--primary); color: #2D2D2D; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .tab-active  { background: var(--text); color: var(--bg); }
+    .tab-default { background: var(--bg2); color: var(--text2); }
+
+    .card-hover { transition: box-shadow .2s, transform .2s; }
+    .card-hover:hover { box-shadow: 0 8px 24px rgba(0,0,0,.12); transform: translateY(-2px); }
+    .note-card-hover { transition: box-shadow .2s, transform .2s; }
+    .note-card-hover:hover { box-shadow: 0 4px 16px rgba(0,0,0,.10); transform: translateY(-2px); }
+
+    .day-line { border-left: 2px solid var(--primary); }
+    .day-dot  { background: var(--primary); }
+
+    .item-row { border-radius: 12px; }
+    .item-row:hover { background: rgba(181,201,107,0.08); }
+    .edit-btn { opacity: 0; transition: opacity .15s; }
+    .item-row:hover .edit-btn { opacity: 1; }
+    .editable-field { border: none; background: transparent; outline: none; width: 100%; color: var(--text); }
+    .editable-field:focus { background: var(--card); border-radius: 6px; box-shadow: 0 0 0 2px rgba(181,201,107,0.4); padding: 2px 4px; }
+
+    .flow-item { border-radius: 10px; font-size: 11px; }
+    .flow-spot  { background: #E8EDC7; color: #4A6B1A; }
+    .flow-food  { background: #FFF3D0; color: #9B6A00; }
+    .flow-hotel { background: #EAF1FF; color: #1A4A99; }
+    html.dark .flow-spot  { background: #2A3A1A; color: #A0C060; }
+    html.dark .flow-food  { background: #3A3010; color: #C0A050; }
+    html.dark .flow-hotel { background: #1A2A4A; color: #6090C0; }
+
+    .modal-overlay { background: rgba(0,0,0,.5); backdrop-filter: blur(4px); }
+
+    #toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(80px); background:#2D2D2D; color:#fff; padding:10px 20px; border-radius:9999px; font-size:14px; font-weight:500; z-index:9999; transition:transform .3s; pointer-events:none; }
+    html.dark #toast { background: #B5C96B; color: #1A1A2E; }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Mobile bottom nav ── */
+    #mobile-nav { display: none; }
+    @media (max-width: 768px) {
+      #mobile-nav { display: flex; }
+      #desktop-tabs { display: none; }
+      .result-grid { grid-template-columns: 1fr !important; }
+      #flow-chart { flex-direction: column !important; align-items: stretch !important; }
+      .flow-day { min-width: unset !important; width: 100% !important; }
+      .flow-arrow { transform: rotate(90deg); text-align: center; margin: 4px 0; }
+      .columns-2, .columns-3, .md\:columns-3 { columns: 1 !important; }
+      .grid-cols-2, .grid-cols-3, .md\:grid-cols-2, .lg\:grid-cols-3 { grid-template-columns: 1fr !important; }
+      #toast { bottom: 80px; }
+    }
+
+    /* dark mode input */
+    html.dark input, html.dark textarea {
+      background: var(--bg2);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    html.dark .bg-white { background: var(--card) !important; }
+    html.dark .bg-\[\#FAF7F2\] { background: var(--bg) !important; }
+    html.dark .bg-\[\#F5F0E8\] { background: var(--bg2) !important; }
+    html.dark .bg-\[\#F0EBE0\] { background: var(--bg2) !important; }
+    html.dark .bg-\[\#E8EDC7\] { background: #2A3A1A !important; color: #A0C060 !important; }
+    html.dark .text-\[\#2D2D2D\] { color: var(--text) !important; }
+    html.dark .text-\[\#5A5A5A\] { color: var(--text2) !important; }
+    html.dark .text-\[\#8A8A8A\] { color: var(--text3) !important; }
+    html.dark .border-\[\#E5E5E5\] { border-color: var(--border) !important; }
+
+    /* saved indicator */
+    .save-dot { width:8px; height:8px; border-radius:50%; background:#22c55e; display:inline-block; }
+    .save-dot.unsaved { background: #f59e0b; }
+  </style>
+<script src="https://fe-static.xhscdn.com/data/cowork-uba-script/dist/uba-script.js?random=1783063441697002"></script></head>
+<body>
+
+<!-- Toast -->
+<div id="toast">✅ 已保存</div>
+
+<!-- ===== HEADER ===== -->
+<header class="sticky top-0 z-50 border-b border-main" style="background:var(--bg);backdrop-filter:blur(12px)">
+  <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-2xl">✈️</span>
+      <span class="font-bold text-xl tracking-tight">旅行家 <span style="color:var(--primary)">TripMate</span></span>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- save indicator -->
+      <div id="save-indicator" class="hidden items-center gap-1.5 text-xs text-hint">
+        <span class="save-dot" id="save-dot"></span>
+        <span id="save-label">已保存</span>
+      </div>
+      <!-- reset -->
+      <button id="reset-btn" onclick="resetData()" class="hidden text-xs px-3 py-1.5 rounded-full border border-main text-sub hover:border-red-400 hover:text-red-500 transition-all">重置</button>
+      <!-- dark mode toggle -->
+      <button onclick="toggleDark()" id="dark-btn" class="w-9 h-9 rounded-full flex items-center justify-center text-lg hover:bg-page2 transition-all" title="切换暗色模式">🌙</button>
+      <button class="btn-primary rounded-full px-4 py-2 text-sm font-semibold min-h-[36px]">登录</button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== HERO ===== -->
+<section id="hero" class="max-w-3xl mx-auto px-4 pt-16 pb-10 text-center">
+  <div class="fade-in">
+    <div class="inline-flex items-center gap-2 text-xs font-semibold px-4 py-1.5 rounded-full mb-6" style="background:var(--bg3);color:#6B8C2A">
+      <span>🍀</span> 聚合小红书真实攻略，AI 智能规划行程
+    </div>
+    <h1 class="text-4xl md:text-5xl font-bold leading-tight mb-4">
+      告别攻略焦虑<br/><span style="color:var(--primary)">一句话</span>搞定旅行规划
+    </h1>
+    <p class="text-sub text-lg mb-10">输入目的地或路线，AI 自动整合小红书优质笔记，生成专属行程</p>
+  </div>
+  <div class="fade-in-2 card rounded-2xl shadow-sm border p-4">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="flex-1 flex items-center gap-2 rounded-xl px-4 py-3" style="background:var(--bg2)">
+        <span class="text-lg">🗺️</span>
+        <input id="dest-input" type="text" placeholder="输入目的地，如「大理」「成都」「三亚」" class="flex-1 bg-transparent text-sm outline-none" style="color:var(--text)"/>
+      </div>
+      <button onclick="startPlan()" class="btn-primary rounded-xl px-5 py-3 font-semibold text-sm whitespace-nowrap flex items-center gap-2 min-h-[48px]">
+        <span>🤖</span> AI 规划
+      </button>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <span class="text-xs text-hint self-center mr-1">天数</span>
+      <button onclick="toggleTag(this)" class="tag-default text-xs px-3 py-1.5 rounded-full font-medium transition-all">3天</button>
+      <button onclick="toggleTag(this)" class="tag-active  text-xs px-3 py-1.5 rounded-full font-medium transition-all">5天</button>
+      <button onclick="toggleTag(this)" class="tag-default text-xs px-3 py-1.5 rounded-full font-medium transition-all">7天</button>
+      <div class="w-px mx-1" style="background:var(--border)"></div>
+      <span class="text-xs text-hint self-center mr-1">风格</span>
+      <button onclick="toggleTag(this)" class="tag-active  text-xs px-3 py-1.5 rounded-full font-medium transition-all">🍜 美食</button>
+      <button onclick="toggleTag(this)" class="tag-default text-xs px-3 py-1.5 rounded-full font-medium transition-all">📸 打卡</button>
+      <button onclick="toggleTag(this)" class="tag-default text-xs px-3 py-1.5 rounded-full font-medium transition-all">🎒 穷游</button>
+      <button onclick="toggleTag(this)" class="tag-default text-xs px-3 py-1.5 rounded-full font-medium transition-all">💑 情侣</button>
+    </div>
+  </div>
+  <div class="fade-in-3 mt-6">
+    <p class="text-xs text-hint mb-3">🔥 热门目的地</p>
+    <div class="flex flex-wrap justify-center gap-2">
+      <button onclick="quickSearch(&#39;大理&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🏔 大理</button>
+      <button onclick="quickSearch(&#39;三亚&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🌊 三亚</button>
+      <button onclick="quickSearch(&#39;成都&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🐼 成都</button>
+      <button onclick="quickSearch(&#39;厦门&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🌅 厦门</button>
+      <button onclick="quickSearch(&#39;西安&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🏯 西安</button>
+      <button onclick="quickSearch(&#39;杭州&#39;)" class="card border text-sm px-4 py-2 rounded-full hover:border-[#B5C96B] transition-all min-h-[40px]">🌸 杭州</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== LOADING ===== -->
+<div id="loading" class="hidden max-w-6xl mx-auto px-4 py-8">
+  <div class="text-center mb-8">
+    <div class="inline-flex items-center gap-3 card rounded-2xl px-6 py-4 shadow-sm border">
+      <div class="w-5 h-5 border-2 border-t-transparent rounded-full spin" style="border-color:var(--primary);border-top-color:transparent"></div>
+      <span id="loading-text" class="text-sm font-medium text-sub">AI 正在抓取小红书笔记...</span>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 space-y-4">
+      <div class="shimmer h-8 w-48 rounded-lg"></div>
+      <div class="shimmer h-32 rounded-2xl"></div>
+      <div class="shimmer h-32 rounded-2xl"></div>
+    </div>
+    <div class="space-y-4">
+      <div class="shimmer h-8 w-32 rounded-lg"></div>
+      <div class="shimmer h-48 rounded-2xl"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RESULT ===== -->
+<div id="result" class="hidden max-w-6xl mx-auto px-4 pb-28">
+  <!-- Header -->
+  <div class="fade-in flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div>
+      <h2 class="text-2xl font-bold" id="result-title">🗺 大理 5天4夜行程规划</h2>
+      <p class="text-sm text-hint mt-1">基于 <span style="color:var(--primary)" class="font-semibold">47 篇</span>小红书笔记生成 · 预估花费 <span class="font-semibold" style="color:var(--text)">¥3500-5000/人</span></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button onclick="copyItinerary()" class="flex items-center gap-1.5 card border text-sm px-4 py-2 rounded-full font-medium hover:border-[#B5C96B] transition-all min-h-[40px]">📋 复制</button>
+      <button onclick="exportPDF()" class="flex items-center gap-1.5 card border text-sm px-4 py-2 rounded-full font-medium hover:border-[#B5C96B] transition-all min-h-[40px]">📥 PDF</button>
+      <button onclick="scrollToFlowChart()" class="flex items-center gap-1.5 card border text-sm px-4 py-2 rounded-full font-medium hover:border-[#B5C96B] transition-all min-h-[40px]">🗂 流程图</button>
+    </div>
+  </div>
+
+  <!-- Desktop Tabs -->
+  <div id="desktop-tabs" class="fade-in flex gap-2 mb-6 overflow-x-auto pb-1">
+    <button onclick="switchTab(&#39;itinerary&#39;,this)" class="tab-active  whitespace-nowrap text-sm px-5 py-2 rounded-full font-semibold transition-all">📅 行程规划</button>
+    <button onclick="switchTab(&#39;notes&#39;,this)" class="tab-default whitespace-nowrap text-sm px-5 py-2 rounded-full font-semibold transition-all">📖 参考笔记</button>
+    <button onclick="switchTab(&#39;hotel&#39;,this)" class="tab-default whitespace-nowrap text-sm px-5 py-2 rounded-full font-semibold transition-all">🏨 住宿</button>
+    <button onclick="switchTab(&#39;food&#39;,this)" class="tab-default whitespace-nowrap text-sm px-5 py-2 rounded-full font-semibold transition-all">🍜 美食</button>
+    <button onclick="switchTab(&#39;spot&#39;,this)" class="tab-default whitespace-nowrap text-sm px-5 py-2 rounded-full font-semibold transition-all">🎯 景区</button>
+  </div>
+
+  <!-- TAB: Itinerary -->
+  <div id="tab-itinerary">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 result-grid">
+      <div class="lg:col-span-2 space-y-4 fade-in">
+        <div class="flex items-center gap-2 text-xs text-hint rounded-xl px-4 py-2" style="background:rgba(181,201,107,0.15)">
+          <span>✏️</span><span>点击任意时间/名称/描述可直接编辑；悬停显示更多操作</span>
+        </div>
+        <div id="days-container"></div>
+        <button onclick="addDay()" class="w-full border-2 border-dashed rounded-2xl py-3 text-sm font-medium transition-all flex items-center justify-center gap-2 min-h-[48px]" style="border-color:#D0D8B0;color:var(--text3)" onmouseover="this.style.borderColor=&#39;#B5C96B&#39;;this.style.color=&#39;#6B8C2A&#39;" onmouseout="this.style.borderColor=&#39;#D0D8B0&#39;;this.style.color=&#39;var(--text3)&#39;">＋ 添加新的一天</button>
+      </div>
+      <div class="fade-in-2">
+        <h3 class="font-semibold text-base mb-3">📖 参考笔记 <span class="text-xs text-hint font-normal">(小红书精选)</span></h3>
+        <div id="notes-sidebar" class="space-y-3"></div>
+      </div>
+    </div>
+    <!-- Flow Chart -->
+    <div id="flow-chart-section" class="mt-10 fade-in">
+      <div class="flex items-center gap-3 mb-4">
+        <h3 class="text-xl font-bold">🗂 总行程流程图</h3>
+        <span class="text-xs px-3 py-1 rounded-full font-semibold" style="background:var(--bg3);color:#6B8C2A">实时同步</span>
+      </div>
+      <div class="flex flex-wrap gap-3 mb-4 text-xs text-sub">
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm flow-spot inline-block"></span>景区</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm flow-food inline-block"></span>美食</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm flow-hotel inline-block"></span>住宿</span>
+      </div>
+      <div class="card rounded-2xl border p-6 overflow-x-auto">
+        <div id="flow-chart" class="flex gap-0 items-start min-w-max"></div>
+      </div>
+      <div id="budget-summary" class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+    </div>
+  </div>
+
+  <div id="tab-notes" class="hidden"><div id="notes-grid" class="columns-2 md:columns-3 gap-4 space-y-4"></div></div>
+  <div id="tab-hotel" class="hidden"><div id="hotel-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div></div>
+  <div id="tab-food" class="hidden"><div id="food-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div></div>
+  <div id="tab-spot" class="hidden"><div id="spot-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div></div>
+</div>
+
+<!-- ===== MOBILE BOTTOM NAV ===== -->
+<nav id="mobile-nav" class="fixed bottom-0 left-0 right-0 z-40 border-t border-main" style="background:var(--card)">
+  <div class="flex items-center justify-around h-16 max-w-md mx-auto">
+    <button onclick="switchTab(&#39;itinerary&#39;,null);setMobileNav(this)" class="mob-nav-btn flex flex-col items-center gap-1 text-[10px] font-medium py-2 px-4 rounded-xl transition-all active-nav" style="color:var(--primary)">
+      <span class="text-xl">📅</span>行程
+    </button>
+    <button onclick="switchTab(&#39;notes&#39;,null);setMobileNav(this)" class="mob-nav-btn flex flex-col items-center gap-1 text-[10px] font-medium py-2 px-4 rounded-xl transition-all" style="color:var(--text3)">
+      <span class="text-xl">📖</span>笔记
+    </button>
+    <button onclick="switchTab(&#39;hotel&#39;,null);setMobileNav(this)" class="mob-nav-btn flex flex-col items-center gap-1 text-[10px] font-medium py-2 px-4 rounded-xl transition-all" style="color:var(--text3)">
+      <span class="text-xl">🏨</span>住宿
+    </button>
+    <button onclick="switchTab(&#39;food&#39;,null);setMobileNav(this)" class="mob-nav-btn flex flex-col items-center gap-1 text-[10px] font-medium py-2 px-4 rounded-xl transition-all" style="color:var(--text3)">
+      <span class="text-xl">🍜</span>美食
+    </button>
+    <button onclick="switchTab(&#39;spot&#39;,null);setMobileNav(this)" class="mob-nav-btn flex flex-col items-center gap-1 text-[10px] font-medium py-2 px-4 rounded-xl transition-all" style="color:var(--text3)">
+      <span class="text-xl">🎯</span>景区
+    </button>
+  </div>
+</nav>
+
+<!-- ===== EDIT MODAL ===== -->
+<div id="edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+  <div class="card rounded-2xl shadow-2xl w-full max-w-md pop-in border">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-main">
+      <h4 class="font-bold text-base">✏️ 编辑行程项目</h4>
+      <button onclick="closeModal()" class="text-hint hover:text-main text-xl w-8 h-8 flex items-center justify-center">✕</button>
+    </div>
+    <div class="p-6 space-y-4">
+      <div><label class="text-xs font-semibold text-sub mb-1 block">时间</label>
+        <input id="m-time" type="text" class="w-full border border-main rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#B5C96B]"/></div>
+      <div><label class="text-xs font-semibold text-sub mb-1 block">名称</label>
+        <input id="m-name" type="text" class="w-full border border-main rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#B5C96B]"/></div>
+      <div><label class="text-xs font-semibold text-sub mb-1 block">描述</label>
+        <textarea id="m-desc" rows="2" class="w-full border border-main rounded-xl px-4 py-2.5 text-sm outline-none resize-none focus:border-[#B5C96B]"></textarea></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs font-semibold text-sub mb-1 block">预算</label>
+          <input id="m-price" type="text" class="w-full border border-main rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#B5C96B]"/></div>
+        <div><label class="text-xs font-semibold text-sub mb-1 block">时长</label>
+          <input id="m-duration" type="text" class="w-full border border-main rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#B5C96B]"/></div>
+      </div>
+      <div><label class="text-xs font-semibold text-sub mb-1 block">类型</label>
+        <div class="flex gap-2">
+          <button onclick="setModalType(&#39;spot&#39;)" data-type="spot" class="type-btn flex-1 text-xs px-3 py-2 rounded-xl border font-medium transition-all flow-spot border-[#B5C96B] ring-2 ring-[#B5C96B]/30">🏛 景区</button>
+          <button onclick="setModalType(&#39;food&#39;)" data-type="food" class="type-btn flex-1 text-xs px-3 py-2 rounded-xl border font-medium transition-all border-main" style="background:var(--bg2)">🍜 美食</button>
+          <button onclick="setModalType(&#39;hotel&#39;)" data-type="hotel" class="type-btn flex-1 text-xs px-3 py-2 rounded-xl border font-medium transition-all border-main" style="background:var(--bg2)">🏨 住宿</button>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-3 px-6 pb-6">
+      <button onclick="deleteItem()" class="flex-1 border text-sm py-2.5 rounded-xl font-semibold transition-all min-h-[44px]" style="border-color:#FFCCCC;color:#E53935" onmouseover="this.style.background=&#39;#FFF5F5&#39;" onmouseout="this.style.background=&#39;&#39;">🗑 删除</button>
+      <button onclick="saveModal()" class="flex-1 btn-primary text-sm py-2.5 rounded-xl font-semibold min-h-[44px]">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAP MODAL ===== -->
+<div id="map-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-overlay px-4">
+  <div class="card rounded-2xl shadow-2xl w-full max-w-2xl pop-in border overflow-hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-main">
+      <h4 class="font-bold text-base" id="map-title">📍 地图</h4>
+      <button onclick="closeMapModal()" class="text-hint hover:text-main text-xl w-8 h-8 flex items-center justify-center">✕</button>
+    </div>
+    <div style="height:420px;position:relative">
+      <iframe id="map-iframe" src="" style="width:100%;height:100%;border:none" allowfullscreen=""></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================
+// DATA
+// ============================
+const defaultData = {
+  '大理': {
+    emoji:'🏔', budget:'¥3500-5000',
+    days:[
+      {day:1,title:'抵达大理·古城漫游',items:[
+        {time:'14:00',type:'spot',icon:'🏛',name:'大理古城',desc:'漫步人民路，感受白族风情',duration:'2h',price:'免费'},
+        {time:'17:00',type:'food',icon:'🍜',name:'砂锅鱼',desc:'大理必吃，三文鱼砂锅，人均¥60',duration:'1.5h',price:'¥60/人'},
+        {time:'19:30',type:'spot',icon:'🌙',name:'洋人街夜游',desc:'小酒馆、手工艺品，看花灯',duration:'2h',price:'自由消费'},
+        {time:'22:00',type:'hotel',icon:'🏨',name:'入住古城民宿',desc:'推荐苍洱客栈或花间堂',duration:'',price:'¥300-600/晚'},
+      ]},
+      {day:2,title:'苍山洱海·最美自然',items:[
+        {time:'08:00',type:'food',icon:'🥛',name:'早餐·乳扇豆浆',desc:'古城早市，白族传统早餐',duration:'1h',price:'¥20/人'},
+        {time:'09:30',type:'spot',icon:'⛵',name:'洱海游船',desc:'环洱海骑行或包船游',duration:'3h',price:'¥80-200'},
+        {time:'14:00',type:'spot',icon:'🏔',name:'苍山索道',desc:'上山看云海和苍山十九峰',duration:'3h',price:'¥80+¥30'},
+        {time:'19:00',type:'food',icon:'🍖',name:'晚餐·烤乳猪',desc:'大理特色，提前预约',duration:'2h',price:'¥100/人'},
+      ]},
+      {day:3,title:'双廊·网红打卡',items:[
+        {time:'09:00',type:'spot',icon:'📸',name:'双廊古镇',desc:'最美洱海边的小镇，拍照圣地',duration:'3h',price:'免费'},
+        {time:'13:00',type:'food',icon:'🦐',name:'午餐·洱海鱼虾',desc:'双廊当地餐厅，新鲜食材',duration:'1.5h',price:'¥70/人'},
+        {time:'15:00',type:'spot',icon:'🌸',name:'崇圣寺三塔',desc:'大理地标，必打卡',duration:'2h',price:'¥75/人'},
+        {time:'17:00',type:'spot',icon:'🌅',name:'才村码头日落',desc:'最美洱海日落观赏地',duration:'2h',price:'免费'},
+      ]},
+      {day:4,title:'喜洲·沙溪古镇',items:[
+        {time:'08:30',type:'spot',icon:'🏠',name:'喜洲古镇',desc:'白族民居建筑博物馆',duration:'2h',price:'¥50/人'},
+        {time:'11:00',type:'food',icon:'🥮',name:'喜洲粑粑',desc:'现烤咸甜两种，¥3-5一个',duration:'1h',price:'¥20/人'},
+        {time:'13:00',type:'spot',icon:'🛤',name:'沙溪古镇',desc:'茶马古道上的小镇',duration:'4h',price:'免费'},
+        {time:'18:00',type:'food',icon:'🍵',name:'沙溪特色晚餐',desc:'土鸡炖菌菇',duration:'2h',price:'¥60/人'},
+      ]},
+      {day:5,title:'购物·返程',items:[
+        {time:'09:00',type:'spot',icon:'🛍',name:'古城购物',desc:'扎染、乳饼、茶叶、玫瑰酱',duration:'2h',price:'自由消费'},
+        {time:'11:30',type:'food',icon:'🍲',name:'最后一餐',desc:'砂锅米线，大理的味道',duration:'1h',price:'¥30/人'},
+        {time:'13:00',type:'spot',icon:'✈',name:'前往机场',desc:'大理机场距古城约20分钟',duration:'',price:'¥30打车'},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/dali1/300/400',title:'大理5天4夜超详细攻略，建议收藏！',author:'旅行中的小鱼',likes:'2.4w'},
+      {cover:'https://picsum.photos/seed/dali2/300/350',title:'洱海骑行一圈，踩过所有网红点',author:'骑行侠小云',likes:'1.8w'},
+      {cover:'https://picsum.photos/seed/dali3/300/420',title:'大理古城民宿推荐，10家真实测评',author:'民宿探店er',likes:'3.2w'},
+      {cover:'https://picsum.photos/seed/dali4/300/380',title:'大理美食地图｜本地人带你吃遍这座城',author:'吃货在路上',likes:'5.1w'},
+    ],
+    hotels:[
+      {name:'花间堂·大理古城店',type:'精品民宿',price:'¥580/晚',rating:'4.9',location:'大理古城核心',tags:['洱海景观','早餐','白族风格'],img:'https://picsum.photos/seed/hotel1/400/250'},
+      {name:'苍洱客栈',type:'传统民宿',price:'¥280/晚',rating:'4.7',location:'人民路步行5分钟',tags:['性价比高','庭院','热情'],img:'https://picsum.photos/seed/hotel2/400/250'},
+      {name:'洱海边精品酒店',type:'度假酒店',price:'¥1200/晚',rating:'4.8',location:'才村码头旁',tags:['洱海直面','日落阳台','泳池'],img:'https://picsum.photos/seed/hotel3/400/250'},
+    ],
+    foods:[
+      {name:'砂锅鱼',type:'大理名菜',price:'¥60/人',location:'古城美食街',tags:['必吃','三文鱼'],img:'https://picsum.photos/seed/food1/400/250',desc:'大理最具代表性的本地菜'},
+      {name:'乳扇烧烤',type:'街头小食',price:'¥10/串',location:'洋人街夜市',tags:['宵夜','特色'],img:'https://picsum.photos/seed/food2/400/250',desc:'白族特色奶酪，外脆内嫩'},
+      {name:'喜洲粑粑',type:'传统糕点',price:'¥5/个',location:'喜洲古镇',tags:['便宜','必买'],img:'https://picsum.photos/seed/food3/400/250',desc:'现烤现卖，葱花猪油咸味'},
+    ],
+    spots:[
+      {name:'苍山洱海',type:'自然风光',price:'索道¥80',rating:'4.9',duration:'半天',tags:['云海','雪山'],img:'https://picsum.photos/seed/spot1/400/250',desc:'大理的灵魂',mapQ:'苍山+大理'},
+      {name:'崇圣寺三塔',type:'历史古迹',price:'¥75/人',rating:'4.7',duration:'2h',tags:['地标','历史'],img:'https://picsum.photos/seed/spot2/400/250',desc:'大理最具代表性地标',mapQ:'崇圣寺三塔+大理'},
+      {name:'双廊古镇',type:'古镇',price:'免费',rating:'4.8',duration:'半天',tags:['网红','洱海'],img:'https://picsum.photos/seed/spot3/400/250',desc:'洱海东岸最美渔村',mapQ:'双廊古镇+大理'},
+    ]
+  },
+
+  '三亚': {
+    emoji:'🌊', budget:'¥4000-6000',
+    days:[
+      {day:1,title:'抵达三亚·三亚湾',items:[
+        {time:'15:00',type:'spot',icon:'🌊',name:'三亚湾海滩',desc:'入住后直奔海边，踩沙赶海',duration:'2h',price:'免费'},
+        {time:'18:00',type:'food',icon:'🦞',name:'椰海渔村',desc:'新鲜海鲜大餐，人均¥150',duration:'2h',price:'¥150/人'},
+        {time:'20:30',type:'spot',icon:'🌙',name:'鹿回头广场',desc:'俯瞰三亚夜景，情侣必去',duration:'1.5h',price:'¥15/人'},
+        {time:'22:00',type:'hotel',icon:'🏨',name:'入住海景酒店',desc:'推荐亚龙湾或三亚湾区域',duration:'',price:'¥400-800/晚'},
+      ]},
+      {day:2,title:'蜈支洲岛·潜水天堂',items:[
+        {time:'07:30',type:'food',icon:'🥥',name:'椰子早餐',desc:'酒店自助或街边椰子+肠粉',duration:'1h',price:'¥30/人'},
+        {time:'09:00',type:'spot',icon:'🏝',name:'蜈支洲岛',desc:'中国马尔代夫，浮潜/潜水必选',duration:'5h',price:'¥258/人'},
+        {time:'15:00',type:'spot',icon:'🤿',name:'海底世界',desc:'玻璃船观海底，看珊瑚鱼群',duration:'2h',price:'含在门票内'},
+        {time:'19:00',type:'food',icon:'🍢',name:'晚餐·免税城美食广场',desc:'三亚各地美食汇聚',duration:'2h',price:'¥80/人'},
+      ]},
+      {day:3,title:'亚龙湾·天堂之湾',items:[
+        {time:'08:00',type:'spot',icon:'🏖',name:'亚龙湾国家旅游度假区',desc:'中国最美海湾，水质清澈',duration:'3h',price:'免费'},
+        {time:'11:30',type:'food',icon:'🍍',name:'午餐·热带水果宴',desc:'芒果、榴莲、木瓜，热带盛宴',duration:'1h',price:'¥50/人'},
+        {time:'14:00',type:'spot',icon:'🐚',name:'贝壳馆',desc:'亚龙湾贝壳馆，独特热带展览',duration:'1.5h',price:'¥50/人'},
+        {time:'16:30',type:'spot',icon:'🏄',name:'海上运动',desc:'冲浪、香蕉船、摩托艇任选',duration:'2h',price:'¥100-300/项'},
+        {time:'19:30',type:'food',icon:'🦀',name:'晚餐·回族风味',desc:'三亚回族美食一条街',duration:'2h',price:'¥60/人'},
+      ]},
+      {day:4,title:'天涯海角·南山',items:[
+        {time:'08:30',type:'spot',icon:'🌅',name:'天涯海角',desc:'海誓山盟的浪漫胜地',duration:'2h',price:'¥82/人'},
+        {time:'11:00',type:'spot',icon:'⛩',name:'南山文化旅游区',desc:'108米海上观音，祈福必去',duration:'3h',price:'¥150/人'},
+        {time:'14:30',type:'food',icon:'🍛',name:'午餐·黎族风味',desc:'竹筒饭、山兰米酒、野菜',duration:'1.5h',price:'¥80/人'},
+        {time:'17:00',type:'spot',icon:'🛍',name:'三亚免税购物',desc:'离岛免税，化妆品、奢侈品',duration:'2h',price:'自由消费'},
+        {time:'20:00',type:'hotel',icon:'🏨',name:'最后一晚',desc:'提前收拾行李，明日返程',duration:'',price:''},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/sanya1/300/400',title:'三亚4天3夜超全攻略，人均5000玩转海南',author:'海岛控',likes:'3.1w'},
+      {cover:'https://picsum.photos/seed/sanya2/300/350',title:'蜈支洲岛全攻略！潜水避坑指南',author:'潜水爱好者',likes:'2.2w'},
+      {cover:'https://picsum.photos/seed/sanya3/300/420',title:'三亚海鲜地图，避开宰客餐厅',author:'吃货小王',likes:'4.5w'},
+    ],
+    hotels:[
+      {name:'三亚亚特兰蒂斯',type:'超豪华度假村',price:'¥2800/晚',rating:'4.9',location:'海棠湾',tags:['水上乐园','海景','豪华'],img:'https://picsum.photos/seed/sanyah1/400/250'},
+      {name:'三亚湾红树林度假世界',type:'度假酒店',price:'¥800/晚',rating:'4.7',location:'三亚湾',tags:['海景','性价比','泳池'],img:'https://picsum.photos/seed/sanyah2/400/250'},
+      {name:'椰海渔村民宿',type:'特色民宿',price:'¥350/晚',rating:'4.6',location:'亚龙湾',tags:['海景','安静','私密'],img:'https://picsum.photos/seed/sanyah3/400/250'},
+    ],
+    foods:[
+      {name:'清补凉',type:'三亚特色',price:'¥15/碗',location:'解放路夜市',tags:['必吃','消暑'],img:'https://picsum.photos/seed/sanyaf1/400/250',desc:'椰奶+红豆+薏米，三亚消暑神器'},
+      {name:'海鲜大餐',type:'新鲜海鲜',price:'¥150/人',location:'椰海渔村',tags:['必吃','新鲜'],img:'https://picsum.photos/seed/sanyaf2/400/250',desc:'自选活海鲜，现杀现做'},
+      {name:'椰子鸡火锅',type:'海南名菜',price:'¥80/人',location:'各大酒店周边',tags:['特色','鲜甜'],img:'https://picsum.photos/seed/sanyaf3/400/250',desc:'椰子汁为底，三亚独有鲜味'},
+    ],
+    spots:[
+      {name:'蜈支洲岛',type:'海岛',price:'¥258/人',rating:'4.9',duration:'全天',tags:['潜水','浮潜','必去'],img:'https://picsum.photos/seed/sanyas1/400/250',desc:'中国最美热带海岛',mapQ:'蜈支洲岛+三亚'},
+      {name:'天涯海角',type:'景区',price:'¥82/人',rating:'4.6',duration:'2h',tags:['地标','浪漫','海景'],img:'https://picsum.photos/seed/sanyas2/400/250',desc:'天涯海角的浪漫传说',mapQ:'天涯海角+三亚'},
+      {name:'南山文化旅游区',type:'宗教文化',price:'¥150/人',rating:'4.7',duration:'3h',tags:['海上观音','祈福'],img:'https://picsum.photos/seed/sanyas3/400/250',desc:'108米海上观音，世界最高',mapQ:'南山+三亚'},
+    ]
+  },
+
+  '成都': {
+    emoji:'🐼', budget:'¥2500-4000',
+    days:[
+      {day:1,title:'宽窄巷子·锦里',items:[
+        {time:'10:00',type:'spot',icon:'🏛',name:'宽窄巷子',desc:'成都历史文化名片，老茶馆掏耳朵',duration:'3h',price:'免费'},
+        {time:'13:00',type:'food',icon:'🌶',name:'午餐·苍蝇馆子',desc:'成都本地人吃的苍蝇馆，夫妻肺片+红油抄手',duration:'1.5h',price:'¥40/人'},
+        {time:'15:00',type:'spot',icon:'🏮',name:'锦里古街',desc:'武侯祠旁，小吃一条街',duration:'2h',price:'免费'},
+        {time:'18:00',type:'food',icon:'🍢',name:'晚餐·串串香',desc:'成都必吃，吃到停不下来',duration:'2h',price:'¥80/人'},
+        {time:'21:00',type:'hotel',icon:'🏨',name:'春熙路周边酒店',desc:'交通便利，购物方便',duration:'',price:'¥300-500/晚'},
+      ]},
+      {day:2,title:'熊猫基地·全天',items:[
+        {time:'08:00',type:'spot',icon:'🐼',name:'成都大熊猫繁育研究基地',desc:'8-10点最活跃，必须早去',duration:'4h',price:'¥55/人'},
+        {time:'13:00',type:'food',icon:'🍲',name:'午餐·担担面',desc:'老成都担担面，麻辣鲜香',duration:'1h',price:'¥25/人'},
+        {time:'15:00',type:'spot',icon:'🛍',name:'春熙路·太古里',desc:'购物+拍照，网红打卡地',duration:'3h',price:'免费'},
+        {time:'19:00',type:'food',icon:'🍮',name:'晚餐·火锅',desc:'成都火锅，麻辣锅底+鸭肠毛肚',duration:'2.5h',price:'¥100/人'},
+      ]},
+      {day:3,title:'都江堰·青城山',items:[
+        {time:'08:00',type:'spot',icon:'💧',name:'都江堰景区',desc:'2000年前的水利工程，世界遗产',duration:'3h',price:'¥80/人'},
+        {time:'12:00',type:'food',icon:'🐟',name:'午餐·农家乐',desc:'都江堰当地土菜，豆花鱼',duration:'1.5h',price:'¥50/人'},
+        {time:'14:00',type:'spot',icon:'⛰',name:'青城山前山',desc:'道教名山，古木参天，清幽绝境',duration:'3h',price:'¥90/人'},
+        {time:'19:00',type:'food',icon:'🥘',name:'晚餐·回成都',desc:'青城山泡菜+豆腐',duration:'1h',price:'¥40/人'},
+      ]},
+      {day:4,title:'乐山大佛·返程',items:[
+        {time:'07:30',type:'spot',icon:'🗿',name:'乐山大佛',desc:'71米世界最高石刻佛像，必看',duration:'4h',price:'¥90/人'},
+        {time:'12:30',type:'food',icon:'🍜',name:'午餐·乐山钵钵鸡',desc:'乐山特色，冷吃串串',duration:'1h',price:'¥50/人'},
+        {time:'14:30',type:'spot',icon:'🏞',name:'峨眉山半日游',desc:'如有时间可顺路爬山',duration:'3h',price:'¥110/人'},
+        {time:'19:00',type:'spot',icon:'✈',name:'返回成都',desc:'高铁约1小时，轻松返程',duration:'',price:'¥30-80'},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/cd1/300/400',title:'成都4天全攻略，熊猫+火锅+古镇',author:'成都本地人',likes:'6.8w'},
+      {cover:'https://picsum.photos/seed/cd2/300/360',title:'成都必吃清单！100家苍蝇馆踩点',author:'成都美食家',likes:'4.3w'},
+      {cover:'https://picsum.photos/seed/cd3/300/420',title:'大熊猫基地拍照攻略，这些机位超出片',author:'摄影控阿明',likes:'2.9w'},
+    ],
+    hotels:[
+      {name:'成都IFS富力丽思卡尔顿',type:'豪华酒店',price:'¥1500/晚',rating:'4.9',location:'春熙路核心',tags:['奢华','地标','服务'],img:'https://picsum.photos/seed/cdh1/400/250'},
+      {name:'宽窄巷子精品民宿',type:'特色民宿',price:'¥450/晚',rating:'4.8',location:'宽窄巷子旁',tags:['川西风格','地段好','安静'],img:'https://picsum.photos/seed/cdh2/400/250'},
+      {name:'太古里青年旅舍',type:'青旅',price:'¥120/床',rating:'4.6',location:'太古里附近',tags:['性价比','社交','便捷'],img:'https://picsum.photos/seed/cdh3/400/250'},
+    ],
+    foods:[
+      {name:'串串香',type:'成都特色',price:'¥80/人',location:'玉林路',tags:['必吃','麻辣','下饭'],img:'https://picsum.photos/seed/cdf1/400/250',desc:'签签签，串成都的灵魂'},
+      {name:'夫妻肺片',type:'凉菜',price:'¥35/份',location:'各大苍蝇馆',tags:['经典','下酒'],img:'https://picsum.photos/seed/cdf2/400/250',desc:'红油拌牛肉牛杂，麻辣鲜香'},
+      {name:'火锅',type:'重口味',price:'¥100/人',location:'全城均有',tags:['必吃','鸭肠','毛肚'],img:'https://picsum.photos/seed/cdf3/400/250',desc:'九宫格锅底，涮鸭肠7秒吃'},
+    ],
+    spots:[
+      {name:'大熊猫繁育基地',type:'动物保护',price:'¥55/人',rating:'4.9',duration:'4h',tags:['必去','超萌','早去'],img:'https://picsum.photos/seed/cds1/400/250',desc:'全球最大熊猫基地',mapQ:'成都大熊猫繁育研究基地'},
+      {name:'都江堰',type:'世界遗产',price:'¥80/人',rating:'4.8',duration:'3h',tags:['历史','水利','震撼'],img:'https://picsum.photos/seed/cds2/400/250',desc:'2000年前的治水奇迹',mapQ:'都江堰景区'},
+      {name:'乐山大佛',type:'宗教文化',price:'¥90/人',rating:'4.9',duration:'4h',tags:['世界最大','必看'],img:'https://picsum.photos/seed/cds3/400/250',desc:'71米石刻弥勒佛坐像',mapQ:'乐山大佛'},
+    ]
+  },
+
+  '厦门': {
+    emoji:'🌅', budget:'¥2800-4500',
+    days:[
+      {day:1,title:'鼓浪屿·音乐岛',items:[
+        {time:'09:00',type:'spot',icon:'🎹',name:'鼓浪屿',desc:'坐渡轮上岛，漫步老洋房建筑群',duration:'5h',price:'渡轮¥35'},
+        {time:'11:00',type:'food',icon:'🥧',name:'鱼仔松饼',desc:'鼓浪屿网红小吃，排队也要吃',duration:'0.5h',price:'¥15/个'},
+        {time:'13:00',type:'food',icon:'🍱',name:'午餐·鼓浪屿海鲜饭',desc:'岛上餐厅，新鲜食材配海景',duration:'1.5h',price:'¥80/人'},
+        {time:'15:00',type:'spot',icon:'🏛',name:'菽庄花园',desc:'依山傍海的私家花园，打卡必去',duration:'1.5h',price:'¥30/人'},
+        {time:'18:00',type:'hotel',icon:'🏨',name:'中山路周边酒店',desc:'方便逛夜市',duration:'',price:'¥300-600/晚'},
+      ]},
+      {day:2,title:'南普陀·曾厝垵',items:[
+        {time:'09:00',type:'spot',icon:'⛩',name:'南普陀寺',desc:'闽南佛教圣地，免费参观',duration:'2h',price:'免费'},
+        {time:'11:30',type:'food',icon:'🌿',name:'南普陀素斋',desc:'闻名全国的素食，需提前预约',duration:'1.5h',price:'¥50-100/人'},
+        {time:'14:00',type:'spot',icon:'🎨',name:'曾厝垵文创村',desc:'最文艺的城中村，咖啡馆+民宿+涂鸦',duration:'3h',price:'免费'},
+        {time:'18:00',type:'food',icon:'🍢',name:'中山路步行街夜市',desc:'沙茶面、海蛎煎、炸五香',duration:'2h',price:'¥50/人'},
+      ]},
+      {day:3,title:'集美学村·土楼',items:[
+        {time:'08:30',type:'spot',icon:'🏫',name:'集美学村',desc:'陈嘉庚创办，闽南风格建筑群',duration:'2.5h',price:'免费'},
+        {time:'12:00',type:'food',icon:'🍜',name:'午餐·沙茶面',desc:'厦门特色，沙茶汤底+花生碎',duration:'1h',price:'¥20/人'},
+        {time:'14:00',type:'spot',icon:'🏯',name:'永定土楼',desc:'福建圆形土楼，世界文化遗产',duration:'4h',price:'¥100/人'},
+        {time:'20:00',type:'hotel',icon:'🏨',name:'返回厦门',desc:'土楼距厦门约2小时车程',duration:'',price:''},
+      ]},
+      {day:4,title:'环岛路·返程',items:[
+        {time:'08:00',type:'spot',icon:'🚴',name:'环岛路骑行',desc:'21公里海景骑行，看日出绝美',duration:'3h',price:'租车¥20'},
+        {time:'11:00',type:'food',icon:'🦪',name:'午餐·海蛎煎',desc:'厦门必吃，金黄酥脆蚵仔煎',duration:'1h',price:'¥30/人'},
+        {time:'13:00',type:'spot',icon:'📸',name:'厦大·芙蓉湖',desc:'最美大学之一，学生证可免费入',duration:'2h',price:'免费'},
+        {time:'16:00',type:'spot',icon:'✈',name:'前往机场',duration:'',price:'¥20-30'},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/xm1/300/400',title:'厦门4天攻略，土楼+鼓浪屿全搞定',author:'环岛骑行党',likes:'3.5w'},
+      {cover:'https://picsum.photos/seed/xm2/300/350',title:'鼓浪屿不踩坑指南！这些地方别去',author:'厦门定居的我',likes:'5.2w'},
+    ],
+    hotels:[
+      {name:'鼓浪屿别墅民宿',type:'海景民宿',price:'¥600/晚',rating:'4.9',location:'鼓浪屿岛内',tags:['老洋房','海景','精品'],img:'https://picsum.photos/seed/xmh1/400/250'},
+      {name:'中山路精品酒店',type:'商务酒店',price:'¥350/晚',rating:'4.7',location:'中山路步行街',tags:['地段好','便捷','新装修'],img:'https://picsum.photos/seed/xmh2/400/250'},
+    ],
+    foods:[
+      {name:'沙茶面',type:'厦门特色',price:'¥20/人',location:'全城均有',tags:['必吃','早餐'],img:'https://picsum.photos/seed/xmf1/400/250',desc:'沙茶汤底，配花生碎，闽南魂'},
+      {name:'海蛎煎',type:'闽南小吃',price:'¥30/份',location:'中山路夜市',tags:['酥脆','海鲜'],img:'https://picsum.photos/seed/xmf2/400/250',desc:'金黄蚵仔煎，番薯粉裹海蛎'},
+      {name:'土笋冻',type:'特色小吃',price:'¥10/盒',location:'八市海鲜市场',tags:['特色','挑战'],img:'https://picsum.photos/seed/xmf3/400/250',desc:'沙虫冻，闽南特色风味'},
+    ],
+    spots:[
+      {name:'鼓浪屿',type:'历史名岛',price:'渡轮¥35',rating:'4.8',duration:'全天',tags:['必去','老洋房','音乐'],img:'https://picsum.photos/seed/xms1/400/250',desc:'万国建筑博览，世界文化遗产',mapQ:'鼓浪屿+厦门'},
+      {name:'永定土楼',type:'世界遗产',price:'¥100/人',rating:'4.9',duration:'半天',tags:['圆形土楼','震撼'],img:'https://picsum.photos/seed/xms2/400/250',desc:'神秘的福建圆形土楼群',mapQ:'永定土楼+福建'},
+    ]
+  },
+
+  '西安': {
+    emoji:'🏯', budget:'¥2000-3500',
+    days:[
+      {day:1,title:'兵马俑·华清池',items:[
+        {time:'09:00',type:'spot',icon:'🗿',name:'秦始皇陵兵马俑',desc:'世界第八大奇迹，震撼人心',duration:'4h',price:'¥120/人'},
+        {time:'14:00',type:'spot',icon:'♨',name:'华清宫',desc:'杨贵妃泡澡的地方，骊山景色',duration:'2h',price:'¥120/人'},
+        {time:'17:30',type:'food',icon:'🥙',name:'回民街',desc:'西安必逛，肉夹馍+羊肉泡馍+凉皮',duration:'2h',price:'¥60/人'},
+        {time:'21:00',type:'hotel',icon:'🏨',name:'钟楼附近酒店',desc:'西安核心地段，交通便利',duration:'',price:'¥250-500/晚'},
+      ]},
+      {day:2,title:'城墙·大雁塔',items:[
+        {time:'08:30',type:'spot',icon:'🏯',name:'西安城墙',desc:'骑行城墙，俯瞰古城，必打卡',duration:'2.5h',price:'¥54/人，骑行¥45'},
+        {time:'11:30',type:'food',icon:'🍜',name:'午餐·羊肉泡馍',desc:'西安最有代表性的美食',duration:'1.5h',price:'¥35/人'},
+        {time:'14:00',type:'spot',icon:'🕌',name:'大雁塔',desc:'玄奘法师取经归来修建',duration:'2h',price:'¥30/人'},
+        {time:'17:00',type:'spot',icon:'🌊',name:'大唐不夜城',desc:'盛唐风华，夜间流光溢彩',duration:'3h',price:'免费'},
+        {time:'21:00',type:'food',icon:'🍡',name:'宵夜·小吃街',desc:'石子馍、糊辣汤、酸汤水饺',duration:'1h',price:'¥30/人'},
+      ]},
+      {day:3,title:'碑林·关中民俗',items:[
+        {time:'09:00',type:'spot',icon:'📜',name:'碑林博物馆',desc:'2000年书法石碑珍品',duration:'2h',price:'¥30/人'},
+        {time:'11:30',type:'spot',icon:'🛍',name:'书院门古文化街',desc:'文房四宝+字画+拓印体验',duration:'2h',price:'免费'},
+        {time:'14:00',type:'food',icon:'🧆',name:'午餐·肉夹馍',desc:'百年老店，脆皮饼配腊汁肉',duration:'1h',price:'¥15-20/个'},
+        {time:'16:00',type:'spot',icon:'🏛',name:'陕西历史博物馆',desc:'免费！中国最顶级历史博物馆之一',duration:'3h',price:'免费（需预约）'},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/xa1/300/400',title:'西安3天攻略，兵马俑到回民街全打卡',author:'历史爱好者',likes:'4.1w'},
+      {cover:'https://picsum.photos/seed/xa2/300/380',title:'西安美食地图，吃完这10样才算来过',author:'西安土著',likes:'7.2w'},
+    ],
+    hotels:[
+      {name:'钟楼喜来登酒店',type:'五星酒店',price:'¥800/晚',rating:'4.8',location:'钟楼正对面',tags:['地标','历史感','奢华'],img:'https://picsum.photos/seed/xah1/400/250'},
+      {name:'回民街旁精品民宿',type:'特色民宿',price:'¥280/晚',rating:'4.6',location:'回民街步行2分钟',tags:['关中风格','地段绝','便宜'],img:'https://picsum.photos/seed/xah2/400/250'},
+    ],
+    foods:[
+      {name:'肉夹馍',type:'西安必吃',price:'¥15/个',location:'回民街',tags:['必吃','早餐'],img:'https://picsum.photos/seed/xaf1/400/250',desc:'腊汁肉+白吉馍，中国汉堡'},
+      {name:'羊肉泡馍',type:'西安名菜',price:'¥35/人',location:'老字号馆子',tags:['暖胃','浓郁'],img:'https://picsum.photos/seed/xaf2/400/250',desc:'手掰馍+羊肉汤，冬天必吃'},
+      {name:'凉皮',type:'陕西小吃',price:'¥15/份',location:'全城均有',tags:['辣爽','夏天必吃'],img:'https://picsum.photos/seed/xaf3/400/250',desc:'米皮+辣油+黄瓜丝，爽到飞起'},
+    ],
+    spots:[
+      {name:'秦始皇兵马俑',type:'世界遗产',price:'¥120/人',rating:'5.0',duration:'4h',tags:['必去','震撼','世界奇迹'],img:'https://picsum.photos/seed/xas1/400/250',desc:'世界第八大奇迹，2000年历史',mapQ:'秦始皇兵马俑博物院'},
+      {name:'西安城墙',type:'历史古迹',price:'¥54/人',rating:'4.8',duration:'2.5h',tags:['骑行','古城','俯瞰'],img:'https://picsum.photos/seed/xas2/400/250',desc:'保存最完整的中国古城墙',mapQ:'西安城墙'},
+      {name:'大唐不夜城',type:'文化街区',price:'免费',rating:'4.7',duration:'2h',tags:['夜游','网红','盛唐'],img:'https://picsum.photos/seed/xas3/400/250',desc:'盛唐主题步行街，夜景绝美',mapQ:'大唐不夜城+西安'},
+    ]
+  },
+
+  '杭州': {
+    emoji:'🌸', budget:'¥2500-4000',
+    days:[
+      {day:1,title:'西湖全景·断桥',items:[
+        {time:'07:00',type:'spot',icon:'🌅',name:'西湖日出',desc:'断桥边看日出，最美西湖',duration:'1.5h',price:'免费'},
+        {time:'09:00',type:'spot',icon:'⛵',name:'西湖游船',desc:'乘船游三潭印月、湖心亭',duration:'2h',price:'¥45/人'},
+        {time:'12:00',type:'food',icon:'🍱',name:'午餐·楼外楼',desc:'百年老店，西湖醋鱼+东坡肉',duration:'1.5h',price:'¥150/人'},
+        {time:'14:30',type:'spot',icon:'🌿',name:'苏堤春晓',desc:'苏堤漫步，六座古桥，桃红柳绿',duration:'2h',price:'免费'},
+        {time:'17:00',type:'spot',icon:'🏛',name:'雷峰塔',desc:'白娘子的传说，夕阳下最美',duration:'1.5h',price:'¥40/人'},
+        {time:'19:00',type:'hotel',icon:'🏨',name:'湖滨路酒店',desc:'西湖边，方便游览',duration:'',price:'¥400-800/晚'},
+      ]},
+      {day:2,title:'灵隐寺·龙井',items:[
+        {time:'08:00',type:'spot',icon:'⛩',name:'灵隐寺',desc:'江南名刹，飞来峰石窟造像',duration:'3h',price:'¥30/人+¥45/人'},
+        {time:'12:00',type:'food',icon:'🍵',name:'午餐·茶楼素斋',desc:'配龙井茶，清淡养生',duration:'1.5h',price:'¥60/人'},
+        {time:'14:00',type:'spot',icon:'🍃',name:'龙井村采茶',desc:'亲手采茶+炒茶体验，买真龙井',duration:'3h',price:'¥50体验+买茶'},
+        {time:'18:00',type:'food',icon:'🦐',name:'晚餐·龙井虾仁',desc:'杭州名菜，新茶+活虾，鲜到极致',duration:'1.5h',price:'¥120/人'},
+      ]},
+      {day:3,title:'乌镇·水乡古镇',items:[
+        {time:'08:30',type:'spot',icon:'🚣',name:'乌镇景区',desc:'最美江南水乡，西栅夜景绝美',duration:'6h',price:'¥150/人（含西栅）'},
+        {time:'12:00',type:'food',icon:'🍷',name:'午餐·姑嫂饼+三白',desc:'乌镇三白：白酒白糟白豆腐',duration:'1h',price:'¥50/人'},
+        {time:'19:00',type:'spot',icon:'🌙',name:'西栅夜景',desc:'水桥灯火，最美乌镇在夜晚',duration:'2h',price:'含在门票'},
+        {time:'22:00',type:'hotel',icon:'🏨',name:'乌镇民宿',desc:'住在古镇内体验真正水乡生活',duration:'',price:'¥400-600/晚'},
+      ]},
+      {day:4,title:'宋城·返程',items:[
+        {time:'09:30',type:'spot',icon:'🎭',name:'宋城景区',desc:'千古情演出，中国最大主题乐园之一',duration:'5h',price:'¥260/人（含演出）'},
+        {time:'15:00',type:'food',icon:'🥟',name:'午餐·知味观',desc:'杭帮菜老字号，猫耳朵+西湖醋鱼',duration:'1.5h',price:'¥80/人'},
+        {time:'17:00',type:'spot',icon:'✈',name:'前往机场/高铁站',desc:'杭州东站高铁，方便快捷',duration:'',price:'¥20-50'},
+      ]},
+    ],
+    notes:[
+      {cover:'https://picsum.photos/seed/hz1/300/400',title:'杭州4天攻略，西湖+乌镇+龙井完整版',author:'江南水乡客',likes:'5.5w'},
+      {cover:'https://picsum.photos/seed/hz2/300/360',title:'乌镇两日游，住在水乡是什么体验',author:'慢旅行家',likes:'3.8w'},
+    ],
+    hotels:[
+      {name:'西湖边四季酒店',type:'豪华酒店',price:'¥2200/晚',rating:'4.9',location:'西湖边',tags:['湖景','奢华','服务'],img:'https://picsum.photos/seed/hzh1/400/250'},
+      {name:'灵隐路精品民宿',type:'禅意民宿',price:'¥380/晚',rating:'4.7',location:'灵隐寺旁',tags:['茶香','禅意','安静'],img:'https://picsum.photos/seed/hzh2/400/250'},
+    ],
+    foods:[
+      {name:'西湖醋鱼',type:'杭帮菜',price:'¥80/条',location:'楼外楼',tags:['必吃','经典'],img:'https://picsum.photos/seed/hzf1/400/250',desc:'糖醋汁+草鱼，酸甜鲜嫩'},
+      {name:'东坡肉',type:'杭帮菜',price:'¥68/份',location:'知味观',tags:['必吃','软糯'],img:'https://picsum.photos/seed/hzf2/400/250',desc:'苏东坡发明，肥而不腻的红烧肉'},
+      {name:'龙井虾仁',type:'杭帮名菜',price:'¥120/人',location:'西湖边餐厅',tags:['鲜','嫩','茶香'],img:'https://picsum.photos/seed/hzf3/400/250',desc:'明前龙井+活虾仁，鲜到极致'},
+    ],
+    spots:[
+      {name:'西湖',type:'5A景区',price:'免费',rating:'4.9',duration:'全天',tags:['必去','免费','最美'],img:'https://picsum.photos/seed/hzs1/400/250',desc:'上有天堂，下有苏杭',mapQ:'西湖+杭州'},
+      {name:'乌镇',type:'古镇',price:'¥150/人',rating:'4.8',duration:'全天',tags:['水乡','江南','必去'],img:'https://picsum.photos/seed/hzs2/400/250',desc:'中国最美江南水乡古镇',mapQ:'乌镇+嘉兴'},
+      {name:'灵隐寺',type:'宗教名胜',price:'¥30+¥45',rating:'4.7',duration:'3h',tags:['祈福','古刹','飞来峰'],img:'https://picsum.photos/seed/hzs3/400/250',desc:'江南第一古刹，千年名寺',mapQ:'灵隐寺+杭州'},
+    ]
+  }
+};
+
+// ============================
+// STATE
+// ============================
+let currentData = null;
+let currentDest = '';
+let editTarget  = null;
+let modalType   = 'spot';
+const SAVE_KEY  = 'tripmate_data';
+
+// ============================
+// DARK MODE
+// ============================
+function initDark() {
+  const saved = localStorage.getItem('tripmate_dark');
+  if (saved === 'dark') applyDark(true);
+}
+function applyDark(on) {
+  document.documentElement.classList.toggle('dark', on);
+  document.getElementById('dark-btn').textContent = on ? '☀️' : '🌙';
+  localStorage.setItem('tripmate_dark', on ? 'dark' : 'light');
+}
+function toggleDark() {
+  applyDark(!document.documentElement.classList.contains('dark'));
+}
+initDark();
+
+// ============================
+// LOCAL SAVE
+// ============================
+function saveToLocal() {
+  if (!currentData || !currentDest) return;
+  localStorage.setItem(SAVE_KEY, JSON.stringify({ dest: currentDest, data: currentData }));
+  setSaveIndicator(true);
+}
+function loadFromLocal() {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) return false;
+  try {
+    const { dest, data } = JSON.parse(raw);
+    currentDest = dest;
+    currentData = data;
+    return true;
+  } catch(e) { return false; }
+}
+function resetData() {
+  if (!confirm('确认重置为默认行程？所有编辑将丢失。')) return;
+  if (!currentDest || !defaultData[currentDest]) return;
+  currentData = JSON.parse(JSON.stringify(defaultData[currentDest]));
+  localStorage.removeItem(SAVE_KEY);
+  renderAll();
+  setSaveIndicator(false);
+  showToast('🔄 已重置为默认行程');
+}
+function setSaveIndicator(saved) {
+  const ind = document.getElementById('save-indicator');
+  const dot = document.getElementById('save-dot');
+  const lbl = document.getElementById('save-label');
+  ind.classList.remove('hidden');
+  ind.style.display = 'flex';
+  dot.className = 'save-dot' + (saved ? '' : ' unsaved');
+  lbl.textContent = saved ? '已保存' : '未保存';
+  document.getElementById('reset-btn').classList.remove('hidden');
+}
+
+// ============================
+// HELPERS
+// ============================
+function toggleTag(el) {
+  el.classList.toggle('tag-active');
+  el.classList.toggle('tag-default');
+}
+function quickSearch(dest) {
+  document.getElementById('dest-input').value = dest;
+  startPlan();
+}
+function typeColor(type) {
+  return {spot:'flow-spot',food:'flow-food',hotel:'flow-hotel'}[type] || 'flow-spot';
+}
+function typeBadge(type) {
+  const map = {
+    spot:'bg-[#E8EDC7] text-[#4A6B1A]',
+    food:'bg-[#FFF3D0] text-[#9B6A00]',
+    hotel:'bg-[#EAF1FF] text-[#1A4A99]'
+  };
+  return map[type] || map.spot;
+}
+function showToast(msg='✅ 已保存') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+function findDest(input) {
+  const keys = Object.keys(defaultData);
+  return keys.find(k => input.includes(k)) || '大理';
+}
+
+// ============================
+// LOADING & PLAN
+// ============================
+const loadingMessages = [
+  'AI 正在抓取小红书笔记...',
+  '分析高赞攻略中...',
+  '提取景点、美食、住宿...',
+  '生成个性化行程...',
+  '即将完成，稍等...'
+];
+// ============================
+// 小红书真实数据抓取（本地 OpenCLI）
+// ============================
+async function fetchXhsNotes(dest) {
+  // OpenCLI 本地 daemon 默认跑在 19825 端口
+  // 通过 http://localhost:19825 发搜索请求
+  try {
+    const query = `${dest}旅行攻略`;
+    const url = `http://localhost:19826/?q=${encodeURIComponent(query)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    if (!resp.ok) throw new Error('proxy error');
+    const data = await resp.json();
+    // 解析返回的笔记列表
+    const items = Array.isArray(data) ? data : (data.results || data.items || []);
+    if (!items.length) throw new Error('empty');
+    return items.slice(0, 20).map(function(n) {
+  return {
+    cover: 'https://picsum.photos/seed/' + encodeURIComponent(n.title || query) + '/300/400',
+    title: n.title || '旅行攻略',
+    author: n.author || '旅行达人',
+    likes: n.likes || '热门',
+    url: n.url || '#'
+  };
+});
+
+  } catch(e) {
+    console.log('OpenCLI 未连接，使用本地数据:', e.message);
+    return null; // 降级用假数据
+  }
+}
+
+function startPlan() {
+  const input = document.getElementById('dest-input').value.trim() || '大理';
+  currentDest = findDest(input);
+  currentData = JSON.parse(JSON.stringify(defaultData[currentDest]));
+
+  document.getElementById('hero').classList.add('hidden');
+  document.getElementById('result').classList.add('hidden');
+  document.getElementById('loading').classList.remove('hidden');
+
+  let i = 0;
+  const el = document.getElementById('loading-text');
+  const iv = setInterval(() => { el.textContent = loadingMessages[++i % loadingMessages.length]; }, 800);
+
+  // 同时抓取真实小红书数据
+  fetchXhsNotes(currentDest).then(realNotes => {
+    clearInterval(iv);
+    // 如果拿到了真实数据，替换掉假数据
+    if (realNotes && realNotes.length > 0) {
+      currentData.notes = realNotes;
+      el.textContent = `✅ 已抓取 ${realNotes.length} 篇真实小红书笔记！`;
+    }
+    setTimeout(() => {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('result-title').textContent = `${defaultData[currentDest].emoji} ${currentDest} ${currentData.days.length}天${currentData.days.length-1}夜行程规划`;
+      renderAll();
+      document.getElementById('result').classList.remove('hidden');
+      document.getElementById('mobile-nav').style.display = 'flex';
+      switchTab('itinerary', document.querySelector('[onclick^="switchTab(\'itinerary\'"]'));
+      setSaveIndicator(false);
+    }, realNotes ? 800 : 3000);
+  });
+}
+
+// Auto-load saved data on page open
+window.addEventListener('DOMContentLoaded', () => {
+  if (loadFromLocal()) {
+    document.getElementById('hero').classList.add('hidden');
+    document.getElementById('result-title').textContent = `${defaultData[currentDest]?.emoji||'🗺'} ${currentDest} ${currentData.days.length}天行程规划`;
+    renderAll();
+    document.getElementById('result').classList.remove('hidden');
+    document.getElementById('mobile-nav').style.display = 'flex';
+    switchTab('itinerary', document.querySelector('[onclick^="switchTab(\'itinerary\'"]'));
+    setSaveIndicator(true);
+  }
+});
+
+// ============================
+// RENDER ALL
+// ============================
+function renderAll() {
+  renderDays();
+  renderFlowChart();
+  renderBudget();
+  renderNotesSidebar();
+  renderNotesGrid();
+  renderHotels();
+  renderFoods();
+  renderSpots();
+}
+
+// ============================
+// DAYS
+// ============================
+function renderDays() {
+  document.getElementById('days-container').innerHTML = currentData.days.map((d, di) => `
+    <div class="card rounded-2xl border overflow-hidden card-hover fade-in" style="animation-delay:${di*.07}s">
+      <div class="flex items-center justify-between px-5 py-3.5 border-b border-main">
+        <div class="flex items-center gap-3">
+          <span class="w-8 h-8 rounded-full text-sm font-bold flex items-center justify-center" style="background:var(--primary);color:#2D2D2D">${d.day}</span>
+          <input value="${d.title}" onchange="updateDayTitle(${di},this.value)"
+            class="font-semibold text-base bg-transparent outline-none border-b-2 border-transparent focus:border-[#B5C96B] transition-colors w-48 md:w-72" style="color:var(--text)" />
+        </div>
+        <div class="flex gap-2">
+          <button onclick="addItem(${di})" class="text-xs px-3 py-1 rounded-full font-medium transition-all min-h-[32px]" style="background:var(--bg3);color:#6B8C2A">＋ 添加</button>
+          <button onclick="removeDay(${di})" class="text-xs px-3 py-1 rounded-full font-medium transition-all min-h-[32px]" style="background:#FFF0F0;color:#E53935">✕</button>
+        </div>
+      </div>
+      <div class="p-4 pl-5">
+        <div class="day-line pl-4 space-y-3">${d.items.map((item,ii) => itemHTML(di,ii,item)).join('')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function itemHTML(di, ii, item) {
+  return `
+    <div class="item-row relative p-2 -ml-2 group" id="item-${di}-${ii}">
+      <div class="absolute -left-[21px] top-3 w-3 h-3 rounded-full day-dot border-2" style="border-color:var(--bg)"></div>
+      <div class="flex items-start gap-2">
+        <input value="${item.time}" onchange="updateField(${di},${ii},'time',this.value)"
+          class="editable-field text-xs w-12 shrink-0 pt-0.5" style="color:var(--text3)" />
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm">${item.icon}</span>
+            <input value="${item.name}" onchange="updateField(${di},${ii},'name',this.value)"
+              class="editable-field font-semibold text-sm flex-1 min-w-0" />
+            <span class="text-xs px-2 py-0.5 rounded-full ${typeBadge(item.type)}">${item.price}</span>
+            ${item.duration ? `<span class="text-xs" style="color:var(--text3)">⏱${item.duration}</span>` : ''}
+          </div>
+          <input value="${item.desc}" onchange="updateField(${di},${ii},'desc',this.value)"
+            class="editable-field text-xs mt-0.5" style="color:var(--text2)" />
+        </div>
+        <div class="edit-btn flex gap-1 shrink-0 pt-0.5">
+          <button onclick="openModal(${di},${ii})" class="text-xs w-7 h-7 rounded-full flex items-center justify-center transition-all" style="background:var(--bg3);color:#6B8C2A" title="编辑">✏️</button>
+          <button onclick="moveItem(${di},${ii},-1)" class="text-xs w-7 h-7 rounded-full flex items-center justify-center transition-all" style="background:var(--bg2);color:var(--text2)" title="上移">↑</button>
+          <button onclick="moveItem(${di},${ii},1)"  class="text-xs w-7 h-7 rounded-full flex items-center justify-center transition-all" style="background:var(--bg2);color:var(--text2)" title="下移">↓</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function updateField(di, ii, field, val) {
+  currentData.days[di].items[ii][field] = val;
+  renderFlowChart();
+  saveToLocal();
+}
+function updateDayTitle(di, val) {
+  currentData.days[di].title = val;
+  renderFlowChart();
+  saveToLocal();
+}
+function moveItem(di, ii, dir) {
+  const items = currentData.days[di].items;
+  const ni = ii + dir;
+  if (ni < 0 || ni >= items.length) return;
+  [items[ii], items[ni]] = [items[ni], items[ii]];
+  renderDays(); renderFlowChart();
+  showToast('↕️ 顺序已更新');
+  saveToLocal();
+}
+function removeDay(di) {
+  if (currentData.days.length <= 1) { showToast('⚠️ 至少保留一天'); return; }
+  currentData.days.splice(di, 1);
+  currentData.days.forEach((d, i) => d.day = i + 1);
+  renderDays(); renderFlowChart(); renderBudget();
+  showToast('🗑 已删除该天');
+  saveToLocal();
+}
+function addDay() {
+  const last = currentData.days[currentData.days.length - 1];
+  currentData.days.push({ day: last.day + 1, title: `第${last.day + 1}天`, items: [
+    { time: '09:00', type: 'spot', icon: '📍', name: '新景点', desc: '点击编辑内容', duration: '2h', price: '待定' }
+  ]});
+  renderDays(); renderFlowChart(); renderBudget();
+  showToast('✅ 已添加新的一天');
+  saveToLocal();
+}
+function addItem(di) {
+  currentData.days[di].items.push({ time: '10:00', type: 'spot', icon: '📍', name: '新项目', desc: '点击编辑内容', duration: '1h', price: '待定' });
+  renderDays(); renderFlowChart();
+  showToast('✅ 已添加新项目');
+  saveToLocal();
+}
+
+// ============================
+// MODAL
+// ============================
+function openModal(di, ii) {
+  editTarget = { di, ii };
+  const item = currentData.days[di].items[ii];
+  document.getElementById('m-time').value     = item.time;
+  document.getElementById('m-name').value     = item.name;
+  document.getElementById('m-desc').value     = item.desc;
+  document.getElementById('m-price').value    = item.price;
+  document.getElementById('m-duration').value = item.duration;
+  setModalType(item.type);
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('edit-modal').classList.add('hidden');
+  editTarget = null;
+}
+function setModalType(type) {
+  modalType = type;
+  document.querySelectorAll('.type-btn').forEach(btn => {
+    const t = btn.dataset.type;
+    btn.className = `type-btn flex-1 text-xs px-3 py-2 rounded-xl border font-medium transition-all ${t === type ? typeColor(t)+' border-[#B5C96B] ring-2 ring-[#B5C96B]/30' : 'border-main'}`;
+    if (t !== type) { btn.style.background = 'var(--bg2)'; btn.style.color = 'var(--text2)'; }
+    else { btn.style.background = ''; btn.style.color = ''; }
+  });
+}
+function saveModal() {
+  if (!editTarget) return;
+  const { di, ii } = editTarget;
+  const item = currentData.days[di].items[ii];
+  item.time     = document.getElementById('m-time').value;
+  item.name     = document.getElementById('m-name').value;
+  item.desc     = document.getElementById('m-desc').value;
+  item.price    = document.getElementById('m-price').value;
+  item.duration = document.getElementById('m-duration').value;
+  item.type     = modalType;
+  closeModal();
+  renderDays(); renderFlowChart();
+  showToast('✅ 已保存修改');
+  saveToLocal();
+}
+function deleteItem() {
+  if (!editTarget) return;
+  const { di, ii } = editTarget;
+  currentData.days[di].items.splice(ii, 1);
+  closeModal();
+  renderDays(); renderFlowChart();
+  showToast('🗑 已删除该项目');
+  saveToLocal();
+}
+document.getElementById('edit-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('edit-modal')) closeModal();
+});
+
+// ============================
+// FLOW CHART
+// ============================
+function renderFlowChart() {
+  const chart = document.getElementById('flow-chart');
+  chart.innerHTML = currentData.days.map((d, di) => `
+    <div class="flex items-start gap-0">
+      <div class="flow-day shrink-0" style="min-width:130px">
+        <div class="text-center mb-2">
+          <div class="w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center mx-auto mb-1" style="background:var(--primary);color:#2D2D2D">D${d.day}</div>
+          <div class="text-[11px] font-semibold leading-tight px-1 text-center" style="max-width:130px;color:var(--text)">${d.title}</div>
+        </div>
+        <div class="px-1">${d.items.map((item,ii) => `
+          <div class="flow-item ${typeColor(item.type)} px-2 py-1.5 mb-1.5 flex items-start gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+               onclick="openModal(${di},${ii})" title="点击编辑">
+            <span class="text-xs shrink-0">${item.icon}</span>
+            <div class="min-w-0">
+              <div class="font-semibold leading-tight truncate" style="font-size:11px">${item.name}</div>
+              <div style="font-size:10px;opacity:0.7;margin-top:2px">${item.time} · ${item.price}</div>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>
+      ${di < currentData.days.length - 1 ? `<div class="flow-arrow pt-4 px-1 shrink-0" style="color:var(--primary);font-size:20px">→</div>` : ''}
+    </div>`).join('');
+}
+
+function renderBudget() {
+  const allItems = currentData.days.flatMap(d => d.items);
+  const byType = { spot: [], food: [], hotel: [] };
+  allItems.forEach(i => { if (byType[i.type]) byType[i.type].push(i.price); });
+  const budget = defaultData[currentDest]?.budget || '¥2500-5000';
+  const cards = [
+    { label:'🏛 景区门票', items:byType.spot,  bg:'var(--bg3)', color:'#4A6B1A' },
+    { label:'🍜 餐饮美食', items:byType.food,  bg:'#FFF3D0',   color:'#9B6A00' },
+    { label:'🏨 住宿费用', items:byType.hotel, bg:'#EAF1FF',   color:'#1A4A99' },
+    { label:'💰 预计总计', total:budget,       bg:'var(--text)',color:'var(--bg)' },
+  ];
+  document.getElementById('budget-summary').innerHTML = cards.map(c => `
+    <div class="rounded-2xl p-4" style="background:${c.bg}">
+      <div class="text-xs font-semibold mb-2" style="color:${c.color}">${c.label}</div>
+      ${c.total
+        ? `<div class="text-lg font-bold" style="color:${c.color}">${c.total}</div><div class="text-xs mt-1" style="color:${c.color};opacity:0.7">预估/人</div>`
+        : `<div class="text-sm font-bold" style="color:${c.color}">${c.items.length} 项</div>
+           <div class="text-xs mt-1 truncate" style="color:${c.color};opacity:0.7">${c.items.slice(0,2).join(' · ') || '暂无'}</div>`}
+    </div>`).join('');
+}
+
+// ============================
+// NOTES
+// ============================
+function renderNotesSidebar() {
+  document.getElementById('notes-sidebar').innerHTML = currentData.notes.map((n, i) => `
+    <div class="card rounded-xl border note-card-hover cursor-pointer overflow-hidden fade-in" style="animation-delay:${i*.07}s" onclick="${n.url&&n.url!='#'?`window.open('${n.url}','_blank')`:''}">
+      <div class="flex gap-3 p-3">
+        <img src="${n.cover}" class="w-16 h-16 object-cover rounded-lg shrink-0" onerror="this.src='https://picsum.photos/seed/note${i}/64/64'" />
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold leading-snug mb-1 line-clamp-2" style="color:var(--text)">${n.title}</p>
+          <p class="text-xs" style="color:var(--text3)">${n.author}</p>
+          <div class="flex items-center gap-1 mt-1">
+            <span class="text-xs" style="color:#EA4C8F">❤️</span>
+            <span class="text-xs" style="color:var(--text3)">${typeof n.likes==='number'?n.likes.toLocaleString():n.likes}</span>
+            ${n.url&&n.url!='#'?'<span class="text-xs ml-auto" style="color:var(--primary)">→ 查看</span>':''}
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function renderNotesGrid() {
+  document.getElementById('notes-grid').innerHTML = [...currentData.notes, ...currentData.notes.map((n,i)=>({...n,cover:n.cover.replace(/seed\/\w+/,`seed/g${i}`)}))]
+    .map((n, i) => `
+    <div class="break-inside-avoid mb-4 card rounded-2xl overflow-hidden note-card-hover cursor-pointer border">
+      <img src="${n.cover}" class="w-full object-cover" style="height:${160+((i*41)%120)}px" />
+      <div class="p-3">
+        <p class="text-xs font-semibold leading-snug mb-2" style="color:var(--text)">${n.title}</p>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <div class="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center" style="background:var(--primary)">${n.author[0]}</div>
+            <span class="text-xs" style="color:var(--text3)">${n.author}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-xs" style="color:#EA4C8F">❤️</span>
+            <span class="text-xs" style="color:var(--text3)">${n.likes}</span>
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ============================
+// HOTELS / FOODS / SPOTS
+// ============================
+function renderHotels() {
+  document.getElementById('hotel-grid').innerHTML = currentData.hotels.map((h, i) => `
+    <div class="card rounded-2xl border overflow-hidden card-hover cursor-pointer fade-in" style="animation-delay:${i*.08}s">
+      <img src="${h.img}" class="w-full h-44 object-cover" />
+      <div class="p-4">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <div><p class="font-semibold text-sm" style="color:var(--text)">${h.name}</p><p class="text-xs" style="color:var(--text3)">${h.type} · ${h.location}</p></div>
+          <div class="text-right shrink-0"><p class="font-bold" style="color:var(--primary)">${h.price}</p><p class="text-xs" style="color:var(--text3)">⭐${h.rating}</p></div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mb-3">${h.tags.map(t=>`<span class="text-xs px-2 py-0.5 rounded-full flow-spot">${t}</span>`).join('')}</div>
+        <button class="btn-primary w-full py-2 rounded-xl text-sm font-semibold min-h-[44px]">查看详情</button>
+      </div>
+    </div>`).join('');
+}
+function renderFoods() {
+  document.getElementById('food-grid').innerHTML = currentData.foods.map((f, i) => `
+    <div class="card rounded-2xl border overflow-hidden card-hover cursor-pointer fade-in" style="animation-delay:${i*.08}s">
+      <img src="${f.img}" class="w-full h-44 object-cover" />
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-1">
+          <p class="font-semibold text-sm" style="color:var(--text)">${f.name}</p>
+          <span class="font-bold text-sm" style="color:var(--primary)">${f.price}</span>
+        </div>
+        <p class="text-xs mb-2" style="color:var(--text2)">${f.desc}</p>
+        <p class="text-xs mb-2" style="color:var(--text3)">📍${f.location}</p>
+        <div class="flex flex-wrap gap-1.5">${f.tags.map(t=>`<span class="text-xs px-2 py-0.5 rounded-full flow-food">${t}</span>`).join('')}</div>
+      </div>
+    </div>`).join('');
+}
+function renderSpots() {
+  document.getElementById('spot-grid').innerHTML = currentData.spots.map((s, i) => `
+    <div class="card rounded-2xl border overflow-hidden card-hover cursor-pointer fade-in" style="animation-delay:${i*.08}s">
+      <div class="relative">
+        <img src="${s.img}" class="w-full h-44 object-cover" />
+        <span class="absolute top-3 left-3 text-xs font-semibold px-3 py-1 rounded-full" style="background:rgba(255,255,255,0.9);color:#2D2D2D">${s.type}</span>
+        <span class="absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full" style="background:var(--primary);color:#2D2D2D">⭐${s.rating}</span>
+      </div>
+      <div class="p-4">
+        <div class="flex items-start justify-between mb-1">
+          <p class="font-semibold text-sm" style="color:var(--text)">${s.name}</p>
+          <span class="text-sm font-bold" style="color:var(--primary)">${s.price}</span>
+        </div>
+        <p class="text-xs mb-1" style="color:var(--text2)">${s.desc}</p>
+        <p class="text-xs mb-2" style="color:var(--text3)">⏱建议游览${s.duration}</p>
+        <div class="flex flex-wrap gap-1.5 mb-3">${s.tags.map(t=>`<span class="text-xs px-2 py-0.5 rounded-full flow-spot">${t}</span>`).join('')}</div>
+        <button onclick="openMap('${s.mapQ||s.name}','${s.name}')" class="w-full border text-sm py-2 rounded-xl font-medium transition-all min-h-[44px]" style="border-color:var(--border);color:var(--text2)" onmouseover="this.style.borderColor='#B5C96B'" onmouseout="this.style.borderColor='var(--border)'">📍 查看地图</button>
+      </div>
+    </div>`).join('');
+}
+
+// ============================
+// MAP MODAL
+// ============================
+function openMap(query, name) {
+  document.getElementById('map-title').textContent = `📍 ${name}`;
+  document.getElementById('map-iframe').src = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&output=embed&hl=zh-CN`;
+  document.getElementById('map-modal').classList.remove('hidden');
+}
+function closeMapModal() {
+  document.getElementById('map-modal').classList.add('hidden');
+  document.getElementById('map-iframe').src = '';
+}
+document.getElementById('map-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('map-modal')) closeMapModal();
+});
+
+// ============================
+// EXPORT
+// ============================
+function copyItinerary() {
+  const text = currentData.days.map(d =>
+    `【Day${d.day}·${d.title}】\n` +
+    d.items.map(i => `${i.time} ${i.icon}${i.name} — ${i.desc}（${i.price}）`).join('\n')
+  ).join('\n\n');
+  navigator.clipboard.writeText(text).then(() => showToast('📋 行程已复制到剪贴板'));
+}
+
+function exportPDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // Title
+    doc.setFontSize(18);
+    doc.setTextColor(45, 45, 45);
+    doc.text(`${currentDest} 旅行规划`, 20, 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor(130, 130, 130);
+    doc.text(`由 TripMate 生成 · 预估花费 ${defaultData[currentDest]?.budget || ''}`, 20, 28);
+
+    let y = 40;
+    currentData.days.forEach(d => {
+      if (y > 260) { doc.addPage(); y = 20; }
+
+      doc.setFontSize(13);
+      doc.setTextColor(45, 45, 45);
+      doc.text(`Day ${d.day}  ${d.title}`, 20, y);
+      y += 7;
+
+      d.items.forEach(item => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        doc.setFontSize(10);
+        doc.setTextColor(80, 80, 80);
+        doc.text(`  ${item.time}  ${item.name}  ${item.price}`, 20, y);
+        y += 5;
+        if (item.desc) {
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          const lines = doc.splitTextToSize(`         ${item.desc}`, 170);
+          doc.text(lines, 20, y);
+          y += lines.length * 4.5;
+        }
+        y += 1;
+      });
+      y += 5;
+    });
+
+    doc.save(`${currentDest}旅行规划_TripMate.pdf`);
+    showToast('📥 PDF 已下载');
+  } catch(e) {
+    showToast('⚠️ PDF 生成失败，请稍后重试');
+    console.error(e);
+  }
+}
+
+// ============================
+// TABS
+// ============================
+function scrollToFlowChart() {
+  document.getElementById('flow-chart-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function switchTab(tab, el) {
+  ['itinerary','notes','hotel','food','spot'].forEach(t => document.getElementById('tab-'+t).classList.add('hidden'));
+  document.getElementById('tab-'+tab).classList.remove('hidden');
+  document.querySelectorAll('[onclick^="switchTab"]').forEach(b => {
+    b.classList.remove('tab-active'); b.classList.add('tab-default');
+  });
+  if (el) { el.classList.remove('tab-default'); el.classList.add('tab-active'); }
+}
+
+function setMobileNav(el) {
+  document.querySelectorAll('.mob-nav-btn').forEach(b => b.style.color = 'var(--text3)');
+  el.style.color = 'var(--primary)';
+}
+</script>
+
+
+</body></html>

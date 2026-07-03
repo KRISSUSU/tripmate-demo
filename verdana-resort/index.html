@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Verdana Resort — Where Nature Meets Luxury</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --green-deep:#1A3C2E;--green-mid:#2D6A4F;--green-light:#52B788;--green-pale:#B7E4C7;
+  --blue-deep:#0A2342;--blue-mid:#1B4F72;--blue-light:#2980B9;--blue-pale:#85C1E9;
+  --cream:#F8F5F0;--gold:#D4AF37;--gold-light:#F0D060;
+  --text-dark:#1A1A1A;--text-mid:#4A4A4A;--text-light:#8A8A8A;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--cream);color:var(--text-dark);overflow-x:hidden}
+
+/* ── SCROLL PROGRESS ── */
+#progress-bar{position:fixed;top:0;left:0;height:2px;background:linear-gradient(90deg,var(--green-light),var(--blue-light));z-index:9999;transition:width .1s;width:0%}
+
+/* ── CURSOR GLOW ── */
+#cursor-glow{position:fixed;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(82,183,136,.12) 0%,transparent 70%);pointer-events:none;transform:translate(-50%,-50%);z-index:9998;transition:transform .1s linear}
+
+/* ── LOADING ── */
+#loading{position:fixed;inset:0;background:var(--green-deep);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .8s,visibility .8s}
+#loading.hidden{opacity:0;visibility:hidden}
+.load-logo{font-family:'Playfair Display',serif;font-size:clamp(24px,4vw,40px);color:var(--cream);letter-spacing:.3em;opacity:0;animation:logoFade 1.2s .3s ease forwards}
+.load-sub{font-size:11px;letter-spacing:.5em;color:var(--green-pale);margin-top:12px;opacity:0;animation:logoFade 1s .8s ease forwards;text-transform:uppercase}
+.load-bar-wrap{width:200px;height:1px;background:rgba(255,255,255,.15);margin-top:40px;overflow:hidden;border-radius:1px}
+.load-bar{height:100%;background:var(--gold);width:0%;animation:loadBar 2s 1s ease forwards}
+@keyframes logoFade{to{opacity:1}}
+@keyframes loadBar{to{width:100%}}
+
+/* ── NAV ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:1000;padding:24px 5%;display:flex;align-items:center;justify-content:space-between;transition:all .4s}
+nav.scrolled{background:rgba(248,245,240,.92);backdrop-filter:blur(12px);padding:16px 5%;box-shadow:0 1px 24px rgba(0,0,0,.06)}
+.nav-logo{font-family:'Playfair Display',serif;font-size:18px;letter-spacing:.15em;color:var(--cream);transition:color .4s;text-decoration:none;text-transform:uppercase}
+nav.scrolled .nav-logo{color:var(--green-deep)}
+.nav-links{display:flex;gap:32px;list-style:none}
+.nav-links a{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.85);text-decoration:none;transition:color .3s;position:relative}
+.nav-links a::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:1px;background:var(--gold);transition:width .3s}
+.nav-links a:hover::after{width:100%}
+nav.scrolled .nav-links a{color:var(--text-mid)}
+.nav-book{border:1px solid var(--gold);color:var(--gold);padding:10px 24px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;background:transparent;cursor:pointer;transition:all .3s}
+.nav-book:hover{background:var(--gold);color:var(--green-deep)}
+.hamburger{display:none;flex-direction:column;gap:5px;cursor:pointer;background:none;border:none;padding:4px}
+.hamburger span{display:block;width:24px;height:1px;background:var(--cream);transition:all .3s}
+nav.scrolled .hamburger span{background:var(--green-deep)}
+
+/* ── HERO ── */
+#hero{height:100vh;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.hero-bg{position:absolute;inset:-10%;background:url('https://picsum.photos/seed/tropical1/1920/1080') center/cover no-repeat;will-change:transform;transition:transform .05s}
+.hero-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,rgba(10,35,66,.3) 0%,rgba(26,60,46,.5) 100%)}
+.hero-content{position:relative;z-index:2;text-align:center;padding:0 24px}
+.hero-eyebrow{font-size:11px;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);margin-bottom:24px;opacity:0;animation:fadeUp .8s .5s ease forwards}
+.hero-title{font-family:'Playfair Display',serif;font-size:clamp(40px,7vw,88px);color:var(--cream);line-height:1.1;margin-bottom:24px;min-height:1.1em}
+.hero-sub{font-size:16px;color:rgba(255,255,255,.75);letter-spacing:.05em;font-weight:300;max-width:480px;margin:0 auto 48px;opacity:0;animation:fadeUp .8s 2s ease forwards}
+.hero-btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;opacity:0;animation:fadeUp .8s 2.3s ease forwards}
+.btn-primary-hero{background:var(--gold);color:var(--green-deep);padding:16px 40px;font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:600;border:none;cursor:pointer;transition:all .3s}
+.btn-primary-hero:hover{background:var(--gold-light);transform:translateY(-2px)}
+.btn-outline-hero{background:transparent;color:var(--cream);padding:16px 40px;font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:500;border:1px solid rgba(255,255,255,.5);cursor:pointer;transition:all .3s}
+.btn-outline-hero:hover{border-color:var(--cream);transform:translateY(-2px)}
+.scroll-hint{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);z-index:2;display:flex;flex-direction:column;align-items:center;gap:8px;color:rgba(255,255,255,.6);font-size:10px;letter-spacing:.2em;text-transform:uppercase;animation:bounce 2s infinite}
+.scroll-hint::before{content:'';display:block;width:1px;height:40px;background:linear-gradient(to bottom,transparent,rgba(255,255,255,.5))}
+@keyframes bounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(8px)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── SECTION BASE ── */
+section{padding:100px 5%}
+.section-eyebrow{font-size:11px;letter-spacing:.4em;text-transform:uppercase;color:var(--green-light);margin-bottom:16px}
+.section-title{font-family:'Playfair Display',serif;font-size:clamp(32px,5vw,56px);line-height:1.15;color:var(--green-deep)}
+.section-title.light{color:var(--cream)}
+.reveal{opacity:0;transform:translateY(40px);transition:opacity .8s ease,transform .8s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* ── ABOUT ── */
+#about{background:var(--cream)}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center;max-width:1200px;margin:0 auto}
+.about-images{position:relative;height:540px}
+.about-img{position:absolute;border-radius:2px;object-fit:cover;box-shadow:0 20px 60px rgba(0,0,0,.12)}
+.about-img-1{width:65%;height:70%;top:0;left:0}
+.about-img-2{width:55%;height:55%;bottom:0;right:0;border:4px solid var(--cream)}
+.about-img-3{width:35%;height:40%;top:50%;left:50%;transform:translate(-50%,-50%)}
+.about-text p{font-size:16px;line-height:1.8;color:var(--text-mid);margin:20px 0 40px}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:40px}
+.stat-item{text-align:center;padding:24px 12px;border-top:1px solid var(--green-pale)}
+.stat-num{font-family:'Playfair Display',serif;font-size:40px;color:var(--green-mid);font-weight:700;line-height:1}
+.stat-unit{font-size:14px;color:var(--green-light);font-weight:600}
+.stat-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-light);margin-top:6px}
+
+/* ── ROOMS ── */
+#rooms{background:#F2EFE9}
+.rooms-header{text-align:center;margin-bottom:64px}
+.rooms-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;max-width:1200px;margin:0 auto}
+.room-card{background:white;border-radius:2px;overflow:hidden;cursor:pointer;transition:transform .4s,box-shadow .4s}
+.room-card:hover{transform:translateY(-8px);box-shadow:0 32px 80px rgba(0,0,0,.12)}
+.room-img-wrap{overflow:hidden;height:240px;perspective:800px}
+.room-img{width:100%;height:100%;object-fit:cover;transition:transform .6s}
+.room-card:hover .room-img{transform:scale(1.05) rotateX(2deg)}
+.room-body{padding:28px}
+.room-type{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--green-light);margin-bottom:8px}
+.room-name{font-family:'Playfair Display',serif;font-size:22px;color:var(--green-deep);margin-bottom:10px}
+.room-desc{font-size:14px;color:var(--text-mid);line-height:1.6;margin-bottom:20px}
+.room-footer{display:flex;align-items:center;justify-content:space-between}
+.room-price{font-size:13px;color:var(--text-light)}
+.room-price strong{font-family:'Playfair Display',serif;font-size:22px;color:var(--green-mid)}
+.btn-room{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--green-mid);border:1px solid var(--green-pale);padding:10px 20px;background:transparent;cursor:pointer;transition:all .3s}
+.btn-room:hover{background:var(--green-mid);color:white;border-color:var(--green-mid)}
+
+/* ── EXPERIENCE ── */
+#experience{background:var(--green-deep);padding:100px 0}
+.exp-header{text-align:center;padding:0 5%;margin-bottom:64px}
+.exp-header p{color:var(--green-pale);font-size:16px;margin-top:16px;max-width:480px;margin-left:auto;margin-right:auto;line-height:1.7}
+.exp-scroll{display:flex;gap:24px;padding:0 5%;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;cursor:grab}
+.exp-scroll::-webkit-scrollbar{display:none}
+.exp-scroll:active{cursor:grabbing}
+.exp-card{flex:0 0 340px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:2px;overflow:hidden;transition:border-color .3s,transform .3s}
+.exp-card:hover{border-color:var(--gold);transform:translateY(-4px)}
+.exp-card-img{height:220px;width:100%;object-fit:cover;filter:saturate(0.8)}
+.exp-card-body{padding:28px}
+.exp-card-icon{font-size:24px;margin-bottom:12px}
+.exp-card-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--cream);margin-bottom:10px}
+.exp-card-desc{font-size:14px;color:rgba(255,255,255,.6);line-height:1.6}
+
+/* ── AWARDS ── */
+#awards{background:linear-gradient(135deg,var(--green-deep) 0%,var(--blue-deep) 100%);padding:80px 5%;text-align:center}
+.awards-title{font-family:'Playfair Display',serif;font-size:clamp(20px,3vw,28px);color:rgba(255,255,255,.5);letter-spacing:.05em;margin-bottom:48px}
+.awards-logos{display:flex;flex-wrap:wrap;justify-content:center;gap:40px 64px;align-items:center}
+.award-item{color:rgba(255,255,255,.7);font-family:'Playfair Display',serif;font-size:18px;letter-spacing:.1em;transition:color .3s}
+.award-item:hover{color:var(--gold)}
+.award-star{color:var(--gold);font-size:12px;display:block;text-align:center;margin-top:4px}
+
+/* ── DINING ── */
+#dining{background:var(--cream)}
+.dining-header{text-align:center;margin-bottom:80px}
+.dining-item{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center;max-width:1100px;margin:0 auto 80px}
+.dining-item:nth-child(odd) .dining-text{order:-1}
+.dining-img{border-radius:2px;overflow:hidden;height:400px}
+.dining-img img{width:100%;height:100%;object-fit:cover;transition:transform .6s}
+.dining-img:hover img{transform:scale(1.04)}
+.dining-eyebrow{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin-bottom:12px}
+.dining-name{font-family:'Playfair Display',serif;font-size:32px;color:var(--green-deep);margin-bottom:16px}
+.dining-desc{font-size:15px;color:var(--text-mid);line-height:1.8;margin-bottom:24px}
+.dining-hours{font-size:12px;letter-spacing:.1em;color:var(--text-light);text-transform:uppercase}
+
+/* ── SPA ── */
+#spa{position:relative;min-height:80vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.spa-bg{position:absolute;inset:-10%;background:url('https://picsum.photos/seed/spa1/1920/1080') center/cover no-repeat;filter:brightness(.45)}
+.spa-content{position:relative;z-index:2;text-align:center;max-width:600px;padding:0 24px}
+.spa-content .section-eyebrow{color:var(--gold)}
+.spa-content p{font-size:17px;color:rgba(255,255,255,.75);line-height:1.8;margin:20px 0 40px}
+.btn-spa{background:transparent;border:1px solid var(--gold);color:var(--gold);padding:16px 48px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;cursor:pointer;transition:all .3s}
+.btn-spa:hover{background:var(--gold);color:var(--green-deep)}
+
+/* ── TESTIMONIALS ── */
+#testimonials{background:#F2EFE9;padding:100px 5%}
+.test-header{text-align:center;margin-bottom:64px}
+.test-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;max-width:1200px;margin:0 auto}
+.test-card{background:white;padding:40px;border-radius:2px;box-shadow:0 4px 24px rgba(0,0,0,.04);transition:transform .3s,box-shadow .3s}
+.test-card:hover{transform:translateY(-4px);box-shadow:0 16px 48px rgba(0,0,0,.08)}
+.test-stars{color:var(--gold);font-size:14px;letter-spacing:2px;margin-bottom:20px}
+.test-quote{font-family:'Playfair Display',serif;font-style:italic;font-size:17px;color:var(--text-dark);line-height:1.7;margin-bottom:28px}
+.test-divider{width:40px;height:1px;background:var(--green-pale);margin-bottom:20px}
+.test-author{font-size:13px;font-weight:600;color:var(--green-deep);letter-spacing:.05em}
+.test-origin{font-size:12px;color:var(--text-light);margin-top:4px}
+
+/* ── LOCATION ── */
+#location{background:var(--cream);padding:100px 5%}
+.loc-grid{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center;max-width:1200px;margin:0 auto}
+.loc-map{border-radius:2px;overflow:hidden;height:400px;box-shadow:0 20px 60px rgba(0,0,0,.1)}
+.loc-map iframe{width:100%;height:100%;border:none}
+.loc-detail{margin-top:32px}
+.loc-detail p{font-size:15px;color:var(--text-mid);line-height:1.8;margin-bottom:24px}
+.how-to{display:flex;flex-direction:column;gap:16px}
+.how-item{display:flex;gap:16px;align-items:flex-start}
+.how-icon{width:40px;height:40px;background:var(--green-pale);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.how-text strong{display:block;font-size:13px;font-weight:600;color:var(--green-deep);margin-bottom:4px}
+.how-text span{font-size:13px;color:var(--text-mid)}
+
+/* ── BOOKING ── */
+#booking{background:var(--green-deep);padding:100px 5%;text-align:center}
+.book-content{max-width:800px;margin:0 auto}
+.book-content p{color:var(--green-pale);font-size:16px;margin:20px 0 48px;line-height:1.7}
+.book-form{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:2px;padding:40px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px;align-items:end}
+.form-group label{display:block;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--green-pale);margin-bottom:8px}
+.form-group input,.form-group select{width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:white;padding:12px 16px;font-size:14px;border-radius:1px;outline:none;transition:border-color .3s}
+.form-group input:focus,.form-group select:focus{border-color:var(--gold)}
+.form-group select option{background:var(--green-deep);color:white}
+.btn-book-now{background:var(--gold);color:var(--green-deep);border:none;padding:14px 32px;font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;cursor:pointer;width:100%;transition:all .3s}
+.btn-book-now:hover{background:var(--gold-light);transform:translateY(-2px)}
+
+/* ── FOOTER ── */
+footer{background:#0F2318;padding:80px 5% 40px;color:rgba(255,255,255,.6)}
+.footer-top{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:60px;margin-bottom:60px}
+.footer-brand .logo{font-family:'Playfair Display',serif;font-size:20px;letter-spacing:.15em;color:var(--cream);text-transform:uppercase;display:block;margin-bottom:16px}
+.footer-brand p{font-size:14px;line-height:1.7;max-width:260px}
+.footer-col h4{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cream);margin-bottom:20px}
+.footer-col a{display:block;font-size:14px;color:rgba(255,255,255,.5);text-decoration:none;margin-bottom:10px;transition:color .3s}
+.footer-col a:hover{color:var(--gold)}
+.footer-social{display:flex;gap:16px;margin-top:20px}
+.social-icon{width:36px;height:36px;border:1px solid rgba(255,255,255,.15);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;transition:all .3s}
+.social-icon:hover{border-color:var(--gold);color:var(--gold)}
+.footer-bottom{border-top:1px solid rgba(255,255,255,.08);padding-top:32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;font-size:12px}
+.footer-bottom a{color:rgba(255,255,255,.4);text-decoration:none;transition:color .3s}
+.footer-bottom a:hover{color:var(--gold)}
+
+/* ── MOBILE ── */
+.mobile-menu{display:none;position:fixed;inset:0;background:var(--green-deep);z-index:999;flex-direction:column;align-items:center;justify-content:center;gap:32px}
+.mobile-menu.open{display:flex}
+.mobile-menu a{font-family:'Playfair Display',serif;font-size:28px;color:var(--cream);text-decoration:none;letter-spacing:.05em;transition:color .3s}
+.mobile-menu a:hover{color:var(--gold)}
+
+@media(max-width:900px){
+  .nav-links,.nav-book{display:none}
+  .hamburger{display:flex}
+  .about-grid,.loc-grid{grid-template-columns:1fr;gap:48px}
+  .about-images{height:320px}
+  .rooms-grid,.test-grid{grid-template-columns:1fr}
+  .dining-item{grid-template-columns:1fr;gap:32px}
+  .dining-item:nth-child(odd) .dining-text{order:0}
+  .book-form{grid-template-columns:1fr 1fr;gap:12px}
+  .footer-top{grid-template-columns:1fr 1fr;gap:40px}
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:600px){
+  section{padding:64px 5%}
+  .book-form{grid-template-columns:1fr}
+  .footer-top{grid-template-columns:1fr}
+  .footer-bottom{flex-direction:column;text-align:center}
+}
+</style>
+</head>
+<body>
+
+<!-- SCROLL PROGRESS -->
+<div id="progress-bar"></div>
+
+<!-- CURSOR GLOW -->
+<div id="cursor-glow"></div>
+
+<!-- LOADING -->
+<div id="loading">
+  <div class="load-logo">VERDANA RESORT</div>
+  <div class="load-sub">Est. 2008 · Tropical Paradise</div>
+  <div class="load-bar-wrap"><div class="load-bar"></div></div>
+</div>
+
+<!-- MOBILE MENU -->
+<div class="mobile-menu" id="mobile-menu">
+  <a href="#about" onclick="closeMobile()">About</a>
+  <a href="#rooms" onclick="closeMobile()">Rooms</a>
+  <a href="#experience" onclick="closeMobile()">Experience</a>
+  <a href="#dining" onclick="closeMobile()">Dining</a>
+  <a href="#spa" onclick="closeMobile()">Spa</a>
+  <a href="#booking" onclick="closeMobile()">Book Now</a>
+</div>
+
+<!-- NAV -->
+<nav id="navbar">
+  <a href="#" class="nav-logo">Verdana Resort</a>
+  <ul class="nav-links">
+    <li><a href="#about">About</a></li>
+    <li><a href="#rooms">Rooms</a></li>
+    <li><a href="#experience">Experience</a></li>
+    <li><a href="#dining">Dining</a></li>
+    <li><a href="#spa">Spa</a></li>
+    <li><a href="#location">Contact</a></li>
+  </ul>
+  <button class="nav-book" onclick="document.getElementById('booking').scrollIntoView({behavior:'smooth'})">Book Now</button>
+  <button class="hamburger" onclick="toggleMobile()" id="hamburger">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-bg" id="hero-bg"></div>
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="hero-eyebrow">Bali, Indonesia · Since 2008</div>
+    <h1 class="hero-title" id="hero-title"></h1>
+    <p class="hero-sub">Nestled between ancient rainforest and pristine coastline, where every moment becomes a memory.</p>
+    <div class="hero-btns">
+      <button class="btn-primary-hero" onclick="document.getElementById('rooms').scrollIntoView({behavior:'smooth'})">Explore Rooms</button>
+      <button class="btn-outline-hero" onclick="document.getElementById('experience').scrollIntoView({behavior:'smooth'})">Our Story</button>
+    </div>
+  </div>
+  <div class="scroll-hint">Scroll</div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="about-grid">
+    <div class="about-images reveal">
+      <img class="about-img about-img-1" src="https://picsum.photos/seed/nature1/600/800" alt="Resort"/>
+      <img class="about-img about-img-2" src="https://picsum.photos/seed/nature3/500/400" alt="Nature"/>
+      <img class="about-img about-img-3" src="https://picsum.photos/seed/nature5/300/300" alt="Detail"/>
+    </div>
+    <div class="about-text reveal" style="transition-delay:.15s">
+      <div class="section-eyebrow">EST. 2008</div>
+      <h2 class="section-title">A Sanctuary<br/><em>of Serenity</em></h2>
+      <p>Verdana Resort was born from a vision — to create a place where luxury and nature exist in perfect harmony. Set within 40 acres of pristine tropical landscape, our resort offers an unparalleled escape from the everyday.</p>
+      <p>Every villa, every pathway, every detail has been thoughtfully designed to honor the environment while providing our guests with the finest comforts the world has to offer.</p>
+      <div class="stats-row">
+        <div class="stat-item reveal"><div class="stat-num"><span class="count" data-target="15">0</span><span class="stat-unit">yr</span></div><div class="stat-label">Heritage</div></div>
+        <div class="stat-item reveal" style="transition-delay:.1s"><div class="stat-num"><span class="count" data-target="48">0</span><span class="stat-unit"></span></div><div class="stat-label">Villas</div></div>
+        <div class="stat-item reveal" style="transition-delay:.2s"><div class="stat-num"><span class="count" data-target="98">0</span><span class="stat-unit">%</span></div><div class="stat-label">Satisfaction</div></div>
+        <div class="stat-item reveal" style="transition-delay:.3s"><div class="stat-num"><span class="count" data-target="12">0</span><span class="stat-unit"></span></div><div class="stat-label">Awards</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROOMS -->
+<section id="rooms">
+  <div class="rooms-header reveal">
+    <div class="section-eyebrow">Accommodation</div>
+    <h2 class="section-title">Your Private Escape</h2>
+    <p style="color:var(--text-mid);margin-top:16px;font-size:16px;max-width:480px;margin-left:auto;margin-right:auto;line-height:1.7">Each villa is a world unto itself, designed to blur the boundary between indoors and out.</p>
+  </div>
+  <div class="rooms-grid">
+    <div class="room-card reveal">
+      <div class="room-img-wrap"><img class="room-img" src="https://picsum.photos/seed/resort1/800/500" alt="Ocean Suite"/></div>
+      <div class="room-body">
+        <div class="room-type">Oceanfront</div>
+        <div class="room-name">Ocean Suite</div>
+        <div class="room-desc">Panoramic ocean views from your private infinity plunge pool, with direct beach access and sundeck terrace.</div>
+        <div class="room-footer">
+          <div class="room-price">From <strong>$580</strong>/night</div>
+          <button class="btn-room">View Details</button>
+        </div>
+      </div>
+    </div>
+    <div class="room-card reveal" style="transition-delay:.1s">
+      <div class="room-img-wrap"><img class="room-img" src="https://picsum.photos/seed/resort2/800/500" alt="Garden Villa"/></div>
+      <div class="room-body">
+        <div class="room-type">Garden</div>
+        <div class="room-name">Garden Villa</div>
+        <div class="room-desc">A lush sanctuary surrounded by tropical gardens, featuring an outdoor rain shower and private courtyard.</div>
+        <div class="room-footer">
+          <div class="room-price">From <strong>$380</strong>/night</div>
+          <button class="btn-room">View Details</button>
+        </div>
+      </div>
+    </div>
+    <div class="room-card reveal" style="transition-delay:.2s">
+      <div class="room-img-wrap"><img class="room-img" src="https://picsum.photos/seed/resort3/800/500" alt="Rainforest Pool Villa"/></div>
+      <div class="room-body">
+        <div class="room-type">Forest Retreat</div>
+        <div class="room-name">Rainforest Pool Villa</div>
+        <div class="room-desc">Canopy-level living with a heated private pool suspended above the treetops. Ultimate seclusion.</div>
+        <div class="room-footer">
+          <div class="room-price">From <strong>$780</strong>/night</div>
+          <button class="btn-room">View Details</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- EXPERIENCE -->
+<section id="experience">
+  <div class="exp-header reveal">
+    <div class="section-eyebrow" style="color:var(--green-pale)">Curated Activities</div>
+    <h2 class="section-title light">Craft Your<br/><em>Perfect Day</em></h2>
+    <p>From sunrise yoga on the clifftops to moonlit private dinners on the beach, every experience is crafted to your desire.</p>
+  </div>
+  <div class="exp-scroll" id="exp-scroll">
+    <div class="exp-card reveal">
+      <img class="exp-card-img" src="https://picsum.photos/seed/exp1/600/400" alt="Water Sports"/>
+      <div class="exp-card-body">
+        <div class="exp-card-icon">🤿</div>
+        <div class="exp-card-title">Ocean Adventures</div>
+        <div class="exp-card-desc">Dive into crystal waters with our certified instructors. From snorkeling to freediving, the ocean awaits.</div>
+      </div>
+    </div>
+    <div class="exp-card reveal" style="transition-delay:.1s">
+      <img class="exp-card-img" src="https://picsum.photos/seed/exp2/600/400" alt="Jungle Trek"/>
+      <div class="exp-card-body">
+        <div class="exp-card-icon">🌿</div>
+        <div class="exp-card-title">Jungle Expeditions</div>
+        <div class="exp-card-desc">Guided treks through ancient rainforest, discovering hidden waterfalls and endemic wildlife.</div>
+      </div>
+    </div>
+    <div class="exp-card reveal" style="transition-delay:.2s">
+      <img class="exp-card-img" src="https://picsum.photos/seed/exp3/600/400" alt="Yoga"/>
+      <div class="exp-card-body">
+        <div class="exp-card-icon">🧘</div>
+        <div class="exp-card-title">Mindfulness & Yoga</div>
+        <div class="exp-card-desc">Morning meditation at sunrise, evening yoga by the ocean. Reconnect with yourself in paradise.</div>
+      </div>
+    </div>
+    <div class="exp-card reveal" style="transition-delay:.3s">
+      <img class="exp-card-img" src="https://picsum.photos/seed/exp4/600/400" alt="Cooking"/>
+      <div class="exp-card-body">
+        <div class="exp-card-icon">🍃</div>
+        <div class="exp-card-title">Culinary Journeys</div>
+        <div class="exp-card-desc">Learn the secrets of Balinese cuisine from our master chefs. Farm-to-table cooking classes daily.</div>
+      </div>
+    </div>
+    <div class="exp-card reveal" style="transition-delay:.4s">
+      <img class="exp-card-img" src="https://picsum.photos/seed/exp5/600/400" alt="Sunset Cruise"/>
+      <div class="exp-card-body">
+        <div class="exp-card-icon">⛵</div>
+        <div class="exp-card-title">Sunset Sailing</div>
+        <div class="exp-card-desc">Private catamaran charter for two as the sun dips below the horizon. Champagne included.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AWARDS -->
+<section id="awards">
+  <div class="awards-title reveal">Recognised by the world's most prestigious travel publications</div>
+  <div class="awards-logos reveal">
+    <div class="award-item">Condé Nast Traveler<span class="award-star">★ Gold List 2024</span></div>
+    <div class="award-item">Travel + Leisure<span class="award-star">★ World's Best 2024</span></div>
+    <div class="award-item">Forbes Travel Guide<span class="award-star">★ Five Star</span></div>
+    <div class="award-item">Tatler<span class="award-star">★ Best Hotel Asia</span></div>
+    <div class="award-item">Wallpaper*<span class="award-star">★ Design Award</span></div>
+  </div>
+</section>
+
+<!-- DINING -->
+<section id="dining">
+  <div class="dining-header reveal">
+    <div class="section-eyebrow">Gastronomy</div>
+    <h2 class="section-title">A Feast for Every Sense</h2>
+    <p style="color:var(--text-mid);font-size:16px;margin-top:16px;max-width:480px;margin:16px auto 0;line-height:1.7">Three distinct dining venues, each offering an experience as memorable as the food itself.</p>
+  </div>
+  <div class="dining-item">
+    <div class="dining-img reveal"><img src="https://picsum.photos/seed/dining1/800/600" alt="The Canopy"/></div>
+    <div class="dining-text reveal" style="transition-delay:.15s">
+      <div class="dining-eyebrow">Signature Restaurant</div>
+      <div class="dining-name">The Canopy</div>
+      <div class="dining-desc">Suspended among the treetops, The Canopy offers a theatrical dining experience amidst the forest canopy. Our chef sources ingredients from our organic garden and local fishermen daily.</div>
+      <div class="dining-hours">Open Daily · Dinner 18:00 – 22:30</div>
+    </div>
+  </div>
+  <div class="dining-item">
+    <div class="dining-text reveal">
+      <div class="dining-eyebrow">Beachfront</div>
+      <div class="dining-name">Azure</div>
+      <div class="dining-desc">Feet in the sand, the sound of waves as your soundtrack. Azure specializes in grilled fresh seafood and Pacific Rim cuisine. The perfect sunset setting for a romantic evening.</div>
+      <div class="dining-hours">Open Daily · Lunch & Dinner 12:00 – 22:00</div>
+    </div>
+    <div class="dining-img reveal" style="transition-delay:.15s"><img src="https://picsum.photos/seed/dining2/800/600" alt="Azure"/></div>
+  </div>
+  <div class="dining-item">
+    <div class="dining-img reveal"><img src="https://picsum.photos/seed/dining3/800/600" alt="The Garden"/></div>
+    <div class="dining-text reveal" style="transition-delay:.15s">
+      <div class="dining-eyebrow">Garden Café</div>
+      <div class="dining-name">The Garden</div>
+      <div class="dining-desc">A relaxed daytime café surrounded by our herb and vegetable gardens. Enjoy farm-to-table breakfasts, fresh juices, and healthy lunches in a serene tropical setting.</div>
+      <div class="dining-hours">Open Daily · Breakfast & Lunch 07:00 – 15:00</div>
+    </div>
+  </div>
+</section>
+
+<!-- SPA -->
+<section id="spa">
+  <div class="spa-bg"></div>
+  <div class="spa-content reveal">
+    <div class="section-eyebrow">Verdana Wellness</div>
+    <h2 class="section-title light" style="margin-bottom:0">The Art of<br/><em>Restoration</em></h2>
+    <p>Ancient Balinese healing traditions meet modern wellness science in our award-winning spa. Journey inward with our signature ritual treatments.</p>
+    <button class="btn-spa">Book a Treatment</button>
+  </div>
+</section>
+
+<!-- TESTIMONIALS -->
+<section id="testimonials">
+  <div class="test-header reveal">
+    <div class="section-eyebrow">Guest Stories</div>
+    <h2 class="section-title">Words from Our Guests</h2>
+  </div>
+  <div class="test-grid">
+    <div class="test-card reveal">
+      <div class="test-stars">★★★★★</div>
+      <div class="test-quote">"Words cannot describe the magic of Verdana. The rainforest pool villa was beyond anything we had imagined — total seclusion, yet every luxury at our fingertips."</div>
+      <div class="test-divider"></div>
+      <div class="test-author">Sarah & James Mitchell</div>
+      <div class="test-origin">London, United Kingdom · Honeymooners</div>
+    </div>
+    <div class="test-card reveal" style="transition-delay:.1s">
+      <div class="test-stars">★★★★★</div>
+      <div class="test-quote">"The Canopy restaurant alone is worth flying to Bali for. The tasting menu was a culinary masterpiece, and the setting among the treetops was simply extraordinary."</div>
+      <div class="test-divider"></div>
+      <div class="test-author">Hiroshi Tanaka</div>
+      <div class="test-origin">Tokyo, Japan · Food Connoisseur</div>
+    </div>
+    <div class="test-card reveal" style="transition-delay:.2s">
+      <div class="test-stars">★★★★★</div>
+      <div class="test-quote">"We've stayed at many luxury resorts around the world, but Verdana stands in a class of its own. The staff remember your name, your preferences, your stories. It's a home away from home."</div>
+      <div class="test-divider"></div>
+      <div class="test-author">Elena Rousseau</div>
+      <div class="test-origin">Paris, France · Returning Guest</div>
+    </div>
+  </div>
+</section>
+
+<!-- LOCATION -->
+<section id="location">
+  <div class="loc-grid">
+    <div class="reveal">
+      <div class="section-eyebrow">Getting Here</div>
+      <h2 class="section-title">Find Your<br/><em>Paradise</em></h2>
+      <div class="loc-detail">
+        <p>Verdana Resort is nestled on the southwestern coast of Bali, Indonesia. 35 minutes from Ngurah Rai International Airport, our team will ensure your journey to us is as seamless as your stay.</p>
+        <div class="how-to">
+          <div class="how-item">
+            <div class="how-icon">✈️</div>
+            <div class="how-text"><strong>By Air</strong><span>Direct flights available from Singapore, Hong Kong, Tokyo, and Dubai to Bali (DPS)</span></div>
+          </div>
+          <div class="how-item">
+            <div class="how-icon">🚗</div>
+            <div class="how-text"><strong>Private Transfer</strong><span>Complimentary chauffeur service from Ngurah Rai Airport — 35 minutes</span></div>
+          </div>
+          <div class="how-item">
+            <div class="how-icon">🚁</div>
+            <div class="how-text"><strong>Helicopter</strong><span>Private helicopter transfer available upon request, 8 minutes from airport</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="reveal" style="transition-delay:.15s">
+      <div class="loc-map">
+        <iframe src="https://maps.google.com/maps?q=Seminyak+Bali+Indonesia&output=embed&hl=zh-CN" allowfullscreen loading="lazy"></iframe>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BOOKING -->
+<section id="booking">
+  <div class="book-content reveal">
+    <div class="section-eyebrow" style="color:var(--green-pale)">Reserve Your Stay</div>
+    <h2 class="section-title light">Begin Your Journey</h2>
+    <p>Every great escape starts with a single step. Let us help you plan the perfect retreat.</p>
+    <div class="book-form">
+      <div class="form-group">
+        <label>Check In</label>
+        <input type="date" placeholder="DD/MM/YYYY"/>
+      </div>
+      <div class="form-group">
+        <label>Check Out</label>
+        <input type="date" placeholder="DD/MM/YYYY"/>
+      </div>
+      <div class="form-group">
+        <label>Room Type</label>
+        <select>
+          <option>Ocean Suite</option>
+          <option>Garden Villa</option>
+          <option>Rainforest Pool Villa</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Check Availability</label>
+        <button class="btn-book-now">Check Now</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-top">
+    <div class="footer-brand">
+      <span class="logo">Verdana Resort</span>
+      <p>A sanctuary where ancient nature and modern luxury meet in perfect harmony. Bali, Indonesia.</p>
+      <div class="footer-social">
+        <div class="social-icon">𝕏</div>
+        <div class="social-icon">📸</div>
+        <div class="social-icon">▶</div>
+        <div class="social-icon">in</div>
+      </div>
+    </div>
+    <div class="footer-col">
+      <h4>Resort</h4>
+      <a href="#">About Verdana</a>
+      <a href="#">Our Story</a>
+      <a href="#">Sustainability</a>
+      <a href="#">Awards</a>
+      <a href="#">Press</a>
+    </div>
+    <div class="footer-col">
+      <h4>Experiences</h4>
+      <a href="#">Rooms & Villas</a>
+      <a href="#">Dining</a>
+      <a href="#">Spa & Wellness</a>
+      <a href="#">Activities</a>
+      <a href="#">Weddings</a>
+    </div>
+    <div class="footer-col">
+      <h4>Plan Your Stay</h4>
+      <a href="#">Reservations</a>
+      <a href="#">Special Offers</a>
+      <a href="#">Gift Cards</a>
+      <a href="#">FAQ</a>
+      <a href="#">Contact Us</a>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>© 2026 Verdana Resort. All rights reserved.</span>
+    <div style="display:flex;gap:24px">
+      <a href="#">Privacy Policy</a>
+      <a href="#">Terms of Use</a>
+      <a href="#">Cookie Preferences</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── LOADING ──
+window.addEventListener('load',()=>{
+  setTimeout(()=>{
+    document.getElementById('loading').classList.add('hidden')
+  },2800)
+})
+
+// ── SCROLL PROGRESS ──
+window.addEventListener('scroll',()=>{
+  const pct=(window.scrollY/(document.body.scrollHeight-window.innerHeight))*100
+  document.getElementById('progress-bar').style.width=pct+'%'
+  // NAV
+  const nav=document.getElementById('navbar')
+  if(window.scrollY>80){nav.classList.add('scrolled')}else{nav.classList.remove('scrolled')}
+  // PARALLAX
+  document.getElementById('hero-bg').style.transform=`translateY(${window.scrollY*0.4}px)`
+})
+
+// ── CURSOR GLOW ──
+const glow=document.getElementById('cursor-glow')
+document.addEventListener('mousemove',e=>{
+  glow.style.left=e.clientX+'px'
+  glow.style.top=e.clientY+'px'
+})
+
+// ── TYPEWRITER ──
+const words=['Where Nature Meets Luxury','Your Tropical Sanctuary','Escape to Paradise']
+let wi=0,ci=0,deleting=false
+const titleEl=document.getElementById('hero-title')
+function type(){
+  const word=words[wi]
+  if(!deleting){
+    titleEl.textContent=word.slice(0,++ci)
+    if(ci===word.length){setTimeout(()=>{deleting=true;type()},2800);return}
+  }else{
+    titleEl.textContent=word.slice(0,--ci)
+    if(ci===0){deleting=false;wi=(wi+1)%words.length}
+  }
+  setTimeout(type,deleting?60:90)
+}
+setTimeout(type,1200)
+
+// ── REVEAL ON SCROLL ──
+const reveals=document.querySelectorAll('.reveal')
+const revealObs=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')})
+},{threshold:.12})
+reveals.forEach(r=>revealObs.observe(r))
+
+// ── COUNT UP ──
+const counts=document.querySelectorAll('.count')
+const countObs=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting&&!e.target.dataset.counted){
+      e.target.dataset.counted=true
+      const target=+e.target.dataset.target
+      let curr=0
+      const step=Math.ceil(target/60)
+      const iv=setInterval(()=>{
+        curr=Math.min(curr+step,target)
+        e.target.textContent=curr
+        if(curr>=target)clearInterval(iv)
+      },25)
+    }
+  })
+},{threshold:.5})
+counts.forEach(c=>countObs.observe(c))
+
+// ── MOBILE MENU ──
+let mobileOpen=false
+function toggleMobile(){
+  mobileOpen=!mobileOpen
+  document.getElementById('mobile-menu').classList.toggle('open',mobileOpen)
+  const h=document.getElementById('hamburger')
+  const spans=h.querySelectorAll('span')
+  if(mobileOpen){spans[0].style.transform='rotate(45deg) translate(4px,4px)';spans[1].style.opacity='0';spans[2].style.transform='rotate(-45deg) translate(4px,-4px)'}
+  else{spans[0].style.transform='';spans[1].style.opacity='';spans[2].style.transform=''}
+}
+function closeMobile(){if(mobileOpen)toggleMobile()}
+
+// ── HORIZONTAL DRAG SCROLL ──
+const expScroll=document.getElementById('exp-scroll')
+let isDown=false,startX,scrollLeft
+expScroll.addEventListener('mousedown',e=>{isDown=true;startX=e.pageX-expScroll.offsetLeft;scrollLeft=expScroll.scrollLeft})
+expScroll.addEventListener('mouseleave',()=>isDown=false)
+expScroll.addEventListener('mouseup',()=>isDown=false)
+expScroll.addEventListener('mousemove',e=>{
+  if(!isDown)return;e.preventDefault()
+  const x=e.pageX-expScroll.offsetLeft
+  expScroll.scrollLeft=scrollLeft-(x-startX)*1.5
+})
+</script>
+</body>
+</html>

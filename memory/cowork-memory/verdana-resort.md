@@ -1,0 +1,1 @@
+/home/node/.openclaw/workspace/verdana-resort/.cowork/memory.md

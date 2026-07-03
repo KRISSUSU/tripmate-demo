@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-03T08:22:02.921Z",
+  "entries": {
+    "memory:memory/2026-07-01.md:1:46": {
+      "key": "memory:memory/2026-07-01.md:1:46",
+      "path": "memory/2026-07-01.md",
+      "startLine": 1,
+      "endLine": 46,
+      "source": "memory",
+      "snippet": "### 用户行为特征 - 对 AI 工具、设计系统有强烈兴趣",
+      "recallCount": 2,
+      "dailyCount": 0,
+      "groundedCount": 0,
+      "totalScore": 0.75329250395298,
+      "maxScore": 0.39166145920753476,
+      "firstRecalledAt": "2026-07-02T08:19:04.902Z",
+      "lastRecalledAt": "2026-07-03T08:22:02.921Z",
+      "queryHashes": [
+        "df8e2b1a18b2",
+        "5f52bfb6052e"
+      ],
+      "recallDays": [
+        "2026-07-02",
+        "2026-07-03"
+      ],
+      "conceptTags": [
+        "用户",
+        "行为",
+        "特征",
+        "工具",
+        "设计",
+        "系统",
+        "强烈",
+        "兴趣"
+      ]
+    },
+    "memory:memory/2026-07-01.md:38:50": {
+      "key": "memory:memory/2026-07-01.md:38:50",
+      "path": "memory/2026-07-01.md",
+      "startLine": 38,
+      "endLine": 50,
+      "source": "memory",
+      "snippet": "- 用户询问了如何添加新品牌，已提供三种方式（手动创建、从网站生成、从设计文档转换） ### 技术说明 - 沙箱环境限制：大文件下载（>5MB）会被 SIGTERM/SIGKILL 终止 - git clone 在此环境频繁失败，需分批用 curl 或 web_fetch 下载 - Pillow pip 安装多次失败（文件太大） ### 用户行为特征 - 对 AI 工具、设计系统有强烈兴趣 - 喜欢从 GitHub 安装工具 - 曾尝试创建前任 Skill，有一定情感回忆需求 - 用中文交流，技术能力较强",
+      "recallCount": 2,
+      "dailyCount": 0,
+      "groundedCount": 0,
+      "totalScore": 0.7529670417308807,
+      "maxScore": 0.38952714800834654,
+      "firstRecalledAt": "2026-07-02T08:19:04.902Z",
+      "lastRecalledAt": "2026-07-03T08:22:02.921Z",
+      "queryHashes": [
+        "df8e2b1a18b2",
+        "5f52bfb6052e"
+      ],
+      "recallDays": [
+        "2026-07-02",
+        "2026-07-03"
+      ],
+      "conceptTags": [
+        "sigterm/sigkill",
+        "web-fetch",
+        "用户",
+        "询问",
+        "如何",
+        "添加",
+        "品牌",
+        "提供"
+      ]
+    },
+    "memory:memory/2026-07-02.md:28:57": {
+      "key": "memory:memory/2026-07-02.md:28:57",
+      "path": "memory/2026-07-02.md",
+      "startLine": 28,
+      "endLine": 57,
+      "source": "memory",
+      "snippet": "- User picks number → get: reference sites + filter keywords + animation library + offer to build demo ### Topics Taught Today - Apache Doris: MPP OLAP database, Baidu origin (2008, Palo→Doris), real-time analytics, vs Hive+Spark - Spark vs Flink comparison (earlier session, from compacted summary) - Data warehouse layering: ODS/DWD/DWS/ADS/DIM ## Key File Paths - TripMate: `/home/node/.openclaw/workspace/tripmate-demo/index.html` - Resort demo: `/home/node/.openclaw/workspace/resort-demo/index.html` - PRD Word: `/home/node/.openclaw/workspace/TripMate_PRD.docx` - design-inspiration skill: `~/.openclaw/workspace/skills/design-inspiration/SKILL.md` - UI-design skill: `~/.openclaw/workspac",
+      "recallCount": 2,
+      "dailyCount": 0,
+      "groundedCount": 0,
+      "totalScore": 0.7314226359128951,
+      "maxScore": 0.3803767383098602,
+      "firstRecalledAt": "2026-07-02T08:19:04.902Z",
+      "lastRecalledAt": "2026-07-03T08:22:02.921Z",
+      "queryHashes": [
+        "df8e2b1a18b2",
+        "5f52bfb6052e"
+      ],
+      "recallDays": [
+        "2026-07-02",
+        "2026-07-03"
+      ],
+      "conceptTags": [
+        "real-time",
+        "ods/dwd/dws/ads/dim",
+        "home/node",
+        "design-inspiration",
+        "ui-design",
+        "openclaw/workspac",
+        "picks",
+        "number"
+      ]
+    },
+    "memory:memory/2026-07-02.md:1:37": {
+      "key": "memory:memory/2026-07-02.md:1:37",
+      "path": "memory/2026-07-02.md",
+      "startLine": 1,
+      "endLine": 37,
+      "source": "memory",
+      "snippet": "(2008, Palo→Doris), real-time analytics, vs Hive+Spark - Spark vs Flink comparison (earlier session, from compacted summary) - Data warehouse layering: ODS/DWD/DWS/ADS/DIM ## Key File Paths - TripMate: `/home/node/.openclaw/workspace/tripmate-demo/index.html` - Resort demo: `/home/node/.openclaw/workspace/resort-demo/index.html`",
+      "recallCount": 2,
+      "dailyCount": 0,
+      "groundedCount": 0,
+      "totalScore": 0.7134773612022399,
+      "maxScore": 0.35754003822803493,
+      "firstRecalledAt": "2026-07-02T08:19:04.902Z",
+      "lastRecalledAt": "2026-07-03T08:22:02.921Z",
+      "queryHashes": [
+        "df8e2b1a18b2",
+        "5f52bfb6052e"
+      ],
+      "recallDays": [
+        "2026-07-02",
+        "2026-07-03"
+      ],
+      "conceptTags": [
+        "real-time",
+        "ods/dwd/dws/ads/dim",
+        "home/node",
+        "palo",
+        "doris",
+        "real",
+        "time",
+        "analytics"
+      ]
+    }
+  }
+}

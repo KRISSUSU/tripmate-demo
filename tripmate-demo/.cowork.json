@@ -1,0 +1,36 @@
+{
+  "schema": "cowork-project/v1",
+  "id": "cw_proj_5ca726b8-9e8",
+  "name": "tripmate-demo",
+  "srcDir": "/home/node/.openclaw/workspace/tripmate-demo",
+  "createdAt": 1782895149553,
+  "updatedAt": 1783063424941,
+  "createdBy": "seal-agent",
+  "stack": "pure-spa-vite",
+  "guardCompliant": true,
+  "pack": {
+    "keep": [
+      "dist"
+    ]
+  },
+  "devConfig": {
+    "preStart": [
+      "test -d node_modules/vite || NODE_ENV=development npm install --silent --include=dev --registry=http://registry.npmmirror.com"
+    ],
+    "run": "npm run dev -- --host 0.0.0.0 --port ${PORT}"
+  },
+  "cowork": {
+    "workId": 61499,
+    "appId": "2ece1a4e",
+    "alias": "tripmate-demo",
+    "accessUrl": "https://cowork.xiaohongshu.com/s/tripmate-demo",
+    "coworkAppUrl": "https://cowork.xiaohongshu.com/app/NWEzYzllMTY",
+    "deploymentId": 9308,
+    "deploymentStatus": "RUNNING",
+    "publishedAt": 1783063424941,
+    "visibility": "SELF_ONLY",
+    "rawAccessUrl": "https://cowork.xiaohongshu.com/s/2ece1a4e/",
+    "version": "1.1.1",
+    "lastZipHash": "sha256:f6e8d4317d115f800a4dd33599f70dde67e68af845d0dcd911c7bed17f7f9c0c"
+  }
+}

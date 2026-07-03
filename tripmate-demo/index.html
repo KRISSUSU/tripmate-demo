@@ -765,28 +765,43 @@ const loadingMessages = [
 // ============================
 // 小红书真实数据抓取（本地 OpenCLI）
 // ============================
-async function fetchXhsNotes(dest) {
-  // OpenCLI 本地 daemon 默认跑在 19825 端口
-  // 通过 http://localhost:19825 发搜索请求
+async function fetchXhsNotes(dest, deep=false) {
   try {
-    const query = `${dest}旅行攻略`;
-    const url = `http://localhost:19826/?q=${encodeURIComponent(query)}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const query = dest + '旅行攻略';
+    const mode = deep ? 'deep' : 'search';
+    const url = 'http://localhost:19826/?q=' + encodeURIComponent(query) + '&mode=' + mode + '&dest=' + encodeURIComponent(dest);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(deep ? 120000 : 60000) });
     if (!resp.ok) throw new Error('proxy error');
     const data = await resp.json();
-    // 解析返回的笔记列表
+
+    if (deep && data.notes) {
+      // 深度模式：返回笔记列表 + 提炼的结构化数据
+      return {
+        notes: data.notes.map(n => ({
+          cover: n.cover || 'https://picsum.photos/seed/' + encodeURIComponent((n.title||dest).slice(0,8)) + '/300/400',
+          title: n.title || '旅行攻略',
+          author: n.author || '旅行达人',
+          likes: n.likes || '热门',
+          url: n.url || '#'
+        })),
+        extracted: data.extracted || {},
+        summaries: data.summaries || []
+      };
+    }
+
+    // 普通模式：返回笔记列表
     const items = Array.isArray(data) ? data : (data.results || data.items || []);
     if (!items.length) throw new Error('empty');
-    return items.slice(0, 8).map(n => ({
-      cover: n.cover || n.image || n.thumbnail || `https://picsum.photos/seed/${dest}${Math.random()|0}/300/400`,
-      title: n.title || n.name || '旅行攻略',
-      author: n.author || n.nickname || '旅行达人',
-      likes: n.likes || n.liked_count || n.interact_info?.liked_count || '热门',
-      url: n.url || n.link || '#'
+    return items.slice(0, 20).map(n => ({
+      cover: n.cover || 'https://picsum.photos/seed/' + encodeURIComponent((n.title||dest).slice(0,8)) + '/300/400',
+      title: n.title || '旅行攻略',
+      author: n.author || '旅行达人',
+      likes: n.likes || '热门',
+      url: n.url || '#'
     }));
   } catch(e) {
     console.log('OpenCLI 未连接，使用本地数据:', e.message);
-    return null; // 降级用假数据
+    return null;
   }
 }
 
@@ -803,13 +818,30 @@ function startPlan() {
   const el = document.getElementById('loading-text');
   const iv = setInterval(() => { el.textContent = loadingMessages[++i % loadingMessages.length]; }, 800);
 
-  // 同时抓取真实小红书数据
-  fetchXhsNotes(currentDest).then(realNotes => {
+  // 同时抓取真实小红书数据（深度模式：读正文提炼景点美食）
+  fetchXhsNotes(currentDest, true).then(result => {
     clearInterval(iv);
-    // 如果拿到了真实数据，替换掉假数据
-    if (realNotes && realNotes.length > 0) {
-      currentData.notes = realNotes;
-      el.textContent = `✅ 已抓取 ${realNotes.length} 篇真实小红书笔记！`;
+    if (result) {
+      // 普通搜索结果（数组）
+      const notes = Array.isArray(result) ? result : result.notes;
+      if (notes && notes.length > 0) {
+        currentData.notes = notes;
+        el.textContent = `✅ 已读取 ${notes.length} 篇小红书笔记，正在生成行程...`;
+      }
+      // 深度模式：用真实提炼数据更新 foods/spots
+      if (result.extracted) {
+        const ex = result.extracted;
+        if (ex.foods && ex.foods.length > 0) {
+          currentData.foods = ex.foods.map((f, i) => ({ name: f, type: ['早餐','午餐','晚餐','小吃','甜品','饮品'][i%6], price: '￥20-80', rating: '4.' + (5+i%5), desc: '小红书高赞推荐', icon: '🍜' }));
+        }
+        if (ex.spots && ex.spots.length > 0) {
+          currentData.spots = ex.spots.map((s, i) => ({ name: s, type: ['自然','文化','休闲','打卡'][i%4], price: i%3===0 ? '免费' : '￥' + (20+i*15), rating: '4.' + (6+i%4), desc: '小红书热门打卡地', icon: ['🏔','🎭','🌊','🎨'][i%4] }));
+        }
+        if (ex.tips && ex.tips.length > 0) {
+          currentData.notes_tips = ex.tips;
+        }
+        console.log('✅ 真实数据已填充：景点', ex.spots?.length, '美食', ex.foods?.length);
+      }
     }
     setTimeout(() => {
       document.getElementById('loading').classList.add('hidden');
@@ -819,7 +851,7 @@ function startPlan() {
       document.getElementById('mobile-nav').style.display = 'flex';
       switchTab('itinerary', document.querySelector('[onclick^="switchTab(\'itinerary\'"]'));
       setSaveIndicator(false);
-    }, realNotes ? 800 : 3000);
+    }, result ? 800 : 3000);
   });
 }
 

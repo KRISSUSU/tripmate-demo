@@ -1,0 +1,1 @@
+/home/node/.openclaw/workspace/tripmate-demo/.cowork/memory.md

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "skills": {
+    "calendar": {
+      "version": "1.0.8",
+      "installedAt": 1782408499330
+    },
+    "summarize": {
+      "version": "1.0.0",
+      "installedAt": 1782925364278
+    },
+    "docx": {
+      "version": "1.0.0",
+      "installedAt": 1782925369511
+    },
+    "pptx": {
+      "version": "1.0.0",
+      "installedAt": 1782925370372
+    },
+    "xlsx": {
+      "version": "1.0.0",
+      "installedAt": 1782925371089
+    },
+    "hi-docs": {
+      "version": "1.0.12",
+      "installedAt": 1782925371705
+    },
+    "hi-im": {
+      "version": "1.0.10",
+      "installedAt": 1782925372301
+    },
+    "hi-search": {
+      "version": "1.0.12",
+      "installedAt": 1782925372894
+    },
+    "hi-todos": {
+      "version": "1.0.11",
+      "installedAt": 1782925373488
+    },
+    "hi-calendar": {
+      "version": "1.0.12",
+      "installedAt": 1782925374130
+    }
+  }
+}

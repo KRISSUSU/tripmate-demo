@@ -1,0 +1,26 @@
+{
+  "name": "桢桢",
+  "slug": "zhenzhen",
+  "created_at": "2026-06-30T11:55:00+08:00",
+  "updated_at": "2026-06-30T11:55:00+08:00",
+  "version": "v1",
+  "profile": {
+    "together_duration": "7 个月",
+    "apart_since": "未知",
+    "occupation": "研究生",
+    "gender": "未知",
+    "mbti": "INFJ",
+    "zodiac": "未知"
+  },
+  "tags": {
+    "personality": ["INFJ", "小护士", "温柔", "理想主义"],
+    "attachment_style": "未知",
+    "love_language": "未知"
+  },
+  "impression": "研究生同学，谈了 7 个月，会一起去迪士尼",
+  "memory_sources": [
+    "照片：上海迪士尼度假区（1 月 2 日）",
+    "口述：MBTI 是 INFJ（小护士）"
+  ],
+  "corrections_count": 0
+}
